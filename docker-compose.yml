@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: education_fr
+      POSTGRES_PASSWORD: education_fr
+      POSTGRES_DB: education_fr
+    ports:
+      - "5432:5432"
+    volumes:
+      - education_fr_pgdata:/var/lib/postgresql/data
+
+volumes:
+  education_fr_pgdata:
