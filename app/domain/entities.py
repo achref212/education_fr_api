@@ -5,17 +5,6 @@ from uuid import UUID
 
 
 @dataclass
-class PasswordResetCode:
-    id: UUID
-    user_id: UUID
-    code_hash: str
-    expires_at: datetime
-    used: bool
-    attempts: int
-    created_at: datetime
-
-
-@dataclass
 class User:
     id: UUID
     email: str

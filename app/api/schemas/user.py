@@ -58,9 +58,15 @@ class ForgotPasswordIn(BaseModel):
     email: EmailStr
 
 
+class ForgotPasswordOut(BaseModel):
+    message: str
+    reset_state_token: str | None = None
+
+
 class VerifyResetCodeIn(BaseModel):
     email: EmailStr
     code: str = Field(pattern=r"^\d{6}$")
+    reset_state_token: str
 
 
 class ResetTokenResponse(BaseModel):
@@ -68,6 +74,7 @@ class ResetTokenResponse(BaseModel):
 
 
 class ResetPasswordIn(BaseModel):
+    email: EmailStr
     reset_token: str
     new_password: str = Field(min_length=6)
 

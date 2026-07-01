@@ -17,7 +17,6 @@ from app.domain.ports import (
     IEmailSender,
     ILessonRepository,
     IMultiplayerRepository,
-    IPasswordResetRepository,
     IProgressRepository,
     IQuizRepository,
     IStoryRepository,
@@ -39,9 +38,6 @@ from app.infrastructure.repositories.sql_lesson_repository import SqlLessonRepos
 from app.infrastructure.repositories.sql_multiplayer_repository import (
     SqlMultiplayerRepository,
 )
-from app.infrastructure.repositories.sql_password_reset_repository import (
-    SqlPasswordResetRepository,
-)
 from app.infrastructure.repositories.sql_progress_repository import SqlProgressRepository
 from app.infrastructure.repositories.sql_quiz_repository import SqlQuizRepository
 from app.infrastructure.repositories.sql_story_repository import SqlStoryRepository
@@ -56,10 +52,6 @@ def get_user_repo(db: Session = Depends(get_db)) -> IUserRepository:
 
 def get_progress_repo(db: Session = Depends(get_db)) -> IProgressRepository:
     return SqlProgressRepository(db)
-
-
-def get_password_reset_repo(db: Session = Depends(get_db)) -> IPasswordResetRepository:
-    return SqlPasswordResetRepository(db)
 
 
 def get_email_sender() -> IEmailSender:
@@ -80,13 +72,11 @@ def get_email_sender() -> IEmailSender:
 
 def get_auth_service(
     users: IUserRepository = Depends(get_user_repo),
-    password_resets: IPasswordResetRepository = Depends(get_password_reset_repo),
     email_sender: IEmailSender = Depends(get_email_sender),
 ) -> AuthService:
     settings = get_settings()
     return AuthService(
         users=users,
-        password_resets=password_resets,
         email_sender=email_sender,
         reset_expire_minutes=settings.password_reset_code_expire_minutes,
     )

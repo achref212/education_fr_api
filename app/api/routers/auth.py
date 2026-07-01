@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_auth_service, get_current_user, get_user_repo
 from app.api.schemas.user import (
     ForgotPasswordIn,
+    ForgotPasswordOut,
     LoginIn,
     MessageResponse,
     RegisterIn,
@@ -81,19 +82,20 @@ def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.from_domain(user)
 
 
-@router.post("/forgot-password", response_model=MessageResponse)
+@router.post("/forgot-password", response_model=ForgotPasswordOut)
 def forgot_password(
     body: ForgotPasswordIn,
     db: Session = Depends(get_db),
     auth: AuthService = Depends(get_auth_service),
-) -> MessageResponse:
-    auth.request_password_reset(body.email)
+) -> ForgotPasswordOut:
+    state_token = auth.request_password_reset(body.email)
     db.commit()
-    return MessageResponse(
+    return ForgotPasswordOut(
         message=(
             "Si un compte est associé à cet e-mail, "
             "vous recevrez un code de réinitialisation."
-        )
+        ),
+        reset_state_token=state_token,
     )
 
 
@@ -104,14 +106,10 @@ def verify_reset_code(
     auth: AuthService = Depends(get_auth_service),
 ) -> ResetTokenResponse:
     try:
-        reset_token = auth.verify_reset_code(body.email, body.code)
+        reset_token = auth.verify_reset_code(body.email, body.code, body.reset_state_token)
         db.commit()
     except AuthError as e:
         db.rollback()
-        if e.code == "too_many_attempts":
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=e.message
-            ) from e
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.message
         ) from e
@@ -125,7 +123,7 @@ def reset_password(
     auth: AuthService = Depends(get_auth_service),
 ) -> MessageResponse:
     try:
-        auth.reset_password(body.reset_token, body.new_password)
+        auth.reset_password(body.email, body.reset_token, body.new_password)
         db.commit()
     except AuthError as e:
         db.rollback()

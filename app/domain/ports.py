@@ -5,7 +5,6 @@ from app.domain.entities import (
     ContactMessage,
     Lesson,
     MultiplayerRoom,
-    PasswordResetCode,
     ProgressData,
     QuizQuestion,
     Story,
@@ -30,25 +29,6 @@ class IUserRepository(Protocol):
     def get_by_id(self, user_id: UUID) -> User | None: ...
 
     def update_password(self, user_id: UUID, password_hash: str) -> None: ...
-
-
-class IPasswordResetRepository(Protocol):
-    def create(
-        self,
-        user_id: UUID,
-        code_hash: str,
-        expires_at: Any,
-    ) -> PasswordResetCode: ...
-
-    def get_latest_for_user(self, user_id: UUID) -> PasswordResetCode | None: ...
-
-    def get_by_id(self, code_id: UUID) -> PasswordResetCode | None: ...
-
-    def increment_attempts(self, code_id: UUID) -> None: ...
-
-    def mark_used(self, code_id: UUID) -> None: ...
-
-    def invalidate_all_for_user(self, user_id: UUID) -> None: ...
 
 
 class IEmailSender(Protocol):
