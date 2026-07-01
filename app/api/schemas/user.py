@@ -37,6 +37,27 @@ class UserOut(BaseModel):
 
 class RegisterIn(BaseModel):
     email: EmailStr
+    password: str = Field(min_length=8)
+    firstName: str
+    lastName: str
+    level: str
+
+class RegisterOut(BaseModel):
+    message: str
+    registration_state_token: str
+
+class VerifyRegistrationIn(BaseModel):
+    email: EmailStr
+    code: str = Field(pattern=r"^\d{6}$")
+    registration_state_token: str
+
+class ResendActivationIn(BaseModel):
+    email: EmailStr
+
+class ResendActivationOut(BaseModel):
+    message: str
+    registration_state_token: str | None = None
+    email: EmailStr
     password: str = Field(min_length=6)
     firstName: str
     lastName: str

@@ -22,6 +22,7 @@ class IUserRepository(Protocol):
         first_name: str,
         last_name: str,
         level: str,
+        is_active: bool = False,
     ) -> User: ...
 
     def get_by_email(self, email: str) -> UserWithHash | None: ...
@@ -30,9 +31,19 @@ class IUserRepository(Protocol):
 
     def update_password(self, user_id: UUID, password_hash: str) -> None: ...
 
+    def activate_user(self, user_id: UUID) -> None: ...
+
 
 class IEmailSender(Protocol):
     def send_password_reset_code(
+        self,
+        to_email: str,
+        to_name: str,
+        code: str,
+        expires_minutes: int,
+    ) -> None: ...
+
+    def send_activation_code(
         self,
         to_email: str,
         to_name: str,

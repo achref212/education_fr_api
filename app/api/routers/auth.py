@@ -8,10 +8,14 @@ from app.api.schemas.user import (
     LoginIn,
     MessageResponse,
     RegisterIn,
+    RegisterOut,
+    ResendActivationIn,
+    ResendActivationOut,
     ResetPasswordIn,
     ResetTokenResponse,
     TokenResponse,
     UserOut,
+    VerifyRegistrationIn,
     VerifyResetCodeIn,
 )
 from app.application.auth_service import AuthError, AuthService
@@ -21,14 +25,14 @@ from app.infrastructure.db.session import get_db
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=RegisterOut, status_code=status.HTTP_201_CREATED)
 def register(
     body: RegisterIn,
     db: Session = Depends(get_db),
     auth: AuthService = Depends(get_auth_service),
-) -> TokenResponse:
+) -> RegisterOut:
     try:
-        user, token = auth.register(
+        user, state_token = auth.register(
             email=body.email,
             password=body.password,
             first_name=body.firstName,
@@ -45,10 +49,44 @@ def register(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.message
             ) from e
         raise
+    return RegisterOut(
+        message="Un code d'activation a été envoyé à votre adresse e-mail.",
+        registration_state_token=state_token,
+    )
+
+@router.post("/verify-registration", response_model=TokenResponse)
+def verify_registration(
+    body: VerifyRegistrationIn,
+    db: Session = Depends(get_db),
+    auth: AuthService = Depends(get_auth_service),
+) -> TokenResponse:
+    try:
+        user, token = auth.verify_registration(body.email, body.code, body.registration_state_token)
+        db.commit()
+    except AuthError as e:
+        db.rollback()
+        if e.code == "already_active":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=e.message
+        ) from e
     return TokenResponse(
         access_token=token,
         token_type="bearer",
         user=UserOut.from_domain(user),
+    )
+
+@router.post("/resend-activation", response_model=ResendActivationOut)
+def resend_activation(
+    body: ResendActivationIn,
+    db: Session = Depends(get_db),
+    auth: AuthService = Depends(get_auth_service),
+) -> ResendActivationOut:
+    state_token = auth.resend_activation_code(body.email)
+    db.commit()
+    return ResendActivationOut(
+        message="Si le compte existe et n'est pas activé, un nouveau code a été envoyé.",
+        registration_state_token=state_token,
     )
 
 

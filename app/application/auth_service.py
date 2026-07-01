@@ -6,8 +6,10 @@ from app.core.security import (
     create_access_token,
     create_password_reset_state_token,
     create_password_reset_token,
+    create_registration_state_token,
     decode_password_reset_state_token,
     decode_password_reset_token,
+    decode_registration_state_token,
     hash_password,
     verify_password,
 )
@@ -43,6 +45,7 @@ class AuthService:
         last_name: str,
         level: str,
     ) -> tuple[User, str]:
+        """Register a new user and send an activation code. Returns (user, registration_state_token)."""
         try:
             email = validate_real_email(email)
         except InvalidEmailError as exc:
@@ -58,9 +61,81 @@ class AuthService:
             first_name=first_name,
             last_name=last_name,
             level=level,
+            is_active=False,
         )
-        token = create_access_token(str(user.id))
-        return user, token
+
+        raw_code = f"{secrets.randbelow(10 ** _RESET_CODE_DIGITS):0{_RESET_CODE_DIGITS}d}"
+        code_hash = hash_password(raw_code)
+
+        state_token = create_registration_state_token(
+            user_id=user.id,
+            code_hash=code_hash,
+            expires_minutes=self._reset_expire_minutes,
+        )
+
+        if self._email_sender:
+            self._email_sender.send_activation_code(
+                to_email=user.email,
+                to_name=user.first_name,
+                code=raw_code,
+                expires_minutes=self._reset_expire_minutes,
+            )
+
+        return user, state_token
+
+    def verify_registration(self, email: str, code: str, state_token: str) -> tuple[User, str]:
+        """Verify the activation code and activate the user. Returns (user, access_token)."""
+        row = self._users.get_by_email(email)
+        if row is None:
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+
+        if row.user.is_active:
+            raise AuthError("already_active", "Compte déjà activé")
+
+        state_data = decode_registration_state_token(state_token)
+        if state_data is None:
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+
+        if state_data.user_id != row.user.id:
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+
+        if not verify_password(code, state_data.code_hash):
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+
+        self._users.activate_user(row.user.id)
+        row.user.is_active = True
+        
+        access_token = create_access_token(str(row.user.id))
+        return row.user, access_token
+
+    def resend_activation_code(self, email: str) -> str | None:
+        """Resend activation code for an inactive user. Returns new state_token."""
+        if self._email_sender is None:
+            return None
+
+        row = self._users.get_by_email(email)
+        if row is None or row.user.is_active:
+            return None
+
+        user = row.user
+
+        raw_code = f"{secrets.randbelow(10 ** _RESET_CODE_DIGITS):0{_RESET_CODE_DIGITS}d}"
+        code_hash = hash_password(raw_code)
+
+        state_token = create_registration_state_token(
+            user_id=user.id,
+            code_hash=code_hash,
+            expires_minutes=self._reset_expire_minutes,
+        )
+
+        self._email_sender.send_activation_code(
+            to_email=user.email,
+            to_name=user.first_name,
+            code=raw_code,
+            expires_minutes=self._reset_expire_minutes,
+        )
+        
+        return state_token
 
     def login(self, email: str, password: str) -> tuple[User, str]:
         row = self._users.get_by_email(email)

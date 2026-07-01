@@ -27,6 +27,7 @@ class FakeUserRepo(IUserRepository):
         first_name: str,
         last_name: str,
         level: str,
+        is_active: bool = False,
     ) -> User:
         u = User(
             id=uuid4(),
@@ -36,7 +37,7 @@ class FakeUserRepo(IUserRepository):
             level=level,
             created_at=datetime.now(timezone.utc),
             role="user",
-            is_active=True,
+            is_active=is_active,
         )
         self.users.append(UserWithHash(user=u, password_hash=password_hash))
         return u
@@ -59,6 +60,12 @@ class FakeUserRepo(IUserRepository):
                 object.__setattr__(entry, "password_hash", password_hash)
                 return
 
+    def activate_user(self, user_id: UUID) -> None:
+        for entry in self.users:
+            if entry.user.id == user_id:
+                object.__setattr__(entry.user, "is_active", True)
+                return
+
 
 
 
@@ -75,6 +82,24 @@ class FakeEmailSender(IEmailSender):
     ) -> None:
         self.sent.append(
             {
+                "type": "password_reset",
+                "to_email": to_email,
+                "to_name": to_name,
+                "code": code,
+                "expires_minutes": expires_minutes,
+            }
+        )
+
+    def send_activation_code(
+        self,
+        to_email: str,
+        to_name: str,
+        code: str,
+        expires_minutes: int,
+    ) -> None:
+        self.sent.append(
+            {
+                "type": "activation",
                 "to_email": to_email,
                 "to_name": to_name,
                 "code": code,
@@ -103,8 +128,9 @@ def _build_service(
 
 def test_register_and_login() -> None:
     repo = FakeUserRepo()
-    auth = AuthService(repo)
-    user, _tok = auth.register(
+    email = FakeEmailSender()
+    auth = AuthService(repo, email_sender=email)
+    user, state_token = auth.register(
         email="alice@gmail.com",
         password="secret12",
         first_name="Alice",
@@ -112,6 +138,16 @@ def test_register_and_login() -> None:
         level="2e",
     )
     assert user.email == "alice@gmail.com"
+    assert not user.is_active
+    assert state_token is not None
+    assert len(email.sent) == 1
+
+    # Verify registration
+    code = email.sent[0]["code"]
+    user2, access_token = auth.verify_registration("alice@gmail.com", code, state_token)
+    assert user2.is_active
+    assert access_token is not None
+
     u2, _tok2 = auth.login("alice@gmail.com", "secret12")
     assert u2.id == user.id
 
@@ -147,6 +183,11 @@ def test_login_wrong_password() -> None:
         last_name="B",
         level="2e",
     )
+    # Manually activate user for login test
+    user = repo.get_by_email("alice@gmail.com")
+    if user:
+        repo.activate_user(user.user.id)
+        
     with pytest.raises(AuthError):
         auth.login("alice@gmail.com", "wrong")
 
@@ -197,6 +238,7 @@ def test_request_password_reset_sends_email() -> None:
         first_name="Alice",
         last_name="B",
         level="2e",
+        is_active=True,
     )
 
     state_token = svc.request_password_reset("alice@gmail.com")
@@ -223,6 +265,7 @@ def test_verify_and_reset_password_happy_path() -> None:
         first_name="Alice",
         last_name="B",
         level="2e",
+        is_active=True,
     )
 
     state_token = svc.request_password_reset("alice@gmail.com")
@@ -250,6 +293,7 @@ def test_verify_reset_code_wrong_code() -> None:
         first_name="Alice",
         last_name="B",
         level="2e",
+        is_active=True,
     )
 
     state_token = svc.request_password_reset("alice@gmail.com")
@@ -268,6 +312,7 @@ def test_verify_reset_code_expired() -> None:
         first_name="Alice",
         last_name="B",
         level="2e",
+        is_active=True,
     )
 
     state_token = svc.request_password_reset("alice@gmail.com")
@@ -289,6 +334,7 @@ def test_reset_password_code_invalidated_after_use() -> None:
         first_name="Alice",
         last_name="B",
         level="2e",
+        is_active=True,
     )
 
     state_token = svc.request_password_reset("alice@gmail.com")

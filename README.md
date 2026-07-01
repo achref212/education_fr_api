@@ -69,7 +69,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Méthode | Chemin | Auth | Description |
 |---------|--------|------|-------------|
 | GET | `/health` | Non | Santé du service |
-| POST | `/auth/register` | Non | Créer un compte (vérifie l'e-mail réel) |
+| POST | `/auth/register` | Non | Créer un compte inactif (envoie un code d'activation) |
+| POST | `/auth/verify-registration` | Non | Vérifier le code d'activation et obtenir le JWT |
+| POST | `/auth/resend-activation` | Non | Renvoyer un code d'activation |
 | POST | `/auth/login` | Non | Connexion |
 | GET | `/auth/me` | Bearer JWT | Profil courant |
 | POST | `/auth/forgot-password` | Non | Demande un code de réinitialisation par e-mail |
@@ -77,6 +79,22 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | POST | `/auth/reset-password` | Non | Applique le nouveau mot de passe |
 | GET | `/progress` | Bearer JWT | Progression |
 | PUT | `/progress` | Bearer JWT | Mise à jour progression |
+
+### Flux d'inscription et Activation
+
+```
+1. POST /auth/register   { "email": "...", "password": "...", ... }
+   → Vérifie l'e-mail (syntaxe, DNS, non jetable).
+   → Crée le compte inactif et envoie un code d'activation par e-mail.
+   → { "message": "...", "registration_state_token": "<jwt>" }
+
+2. POST /auth/verify-registration { "email": "...", "code": "123456", "registration_state_token": "..." }
+   → Vérifie le code. Si valide, active le compte.
+   → { "access_token": "...", "user": {...} }
+
+3. POST /auth/resend-activation { "email": "..." }
+   → Renvoyer un code si le compte existe et n'est pas encore activé.
+```
 
 ### Flux de réinitialisation du mot de passe
 
@@ -98,7 +116,9 @@ L'API vérifie que l'adresse fournie :
 - possède des enregistrements MX/A valides (DNS),
 - n'appartient pas à un domaine de messagerie jetable (mailinator, yopmail, etc.)
 
-En cas d'échec → `422 Unprocessable Entity`.
+Ensuite, un e-mail avec un code d'activation est envoyé pour s'assurer que l'utilisateur a bien accès à cette boîte de réception.
+
+En cas d'échec de la validation DNS/jetable → `422 Unprocessable Entity`.
 
 ## Tests
 

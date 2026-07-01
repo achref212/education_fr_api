@@ -50,6 +50,50 @@ def parse_user_id(sub: str) -> UUID | None:
         return None
 
 
+_REGISTRATION_PURPOSE = "registration_activation"
+
+def create_registration_state_token(
+    user_id: UUID,
+    code_hash: str,
+    expires_minutes: int,
+) -> str:
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "code_hash": code_hash,
+        "purpose": _REGISTRATION_PURPOSE,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+@dataclass
+class RegistrationStateData:
+    user_id: UUID
+    code_hash: str
+
+
+def decode_registration_state_token(token: str) -> RegistrationStateData | None:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+
+    if payload.get("purpose") != _REGISTRATION_PURPOSE:
+        return None
+
+    user_id = parse_user_id(payload.get("sub", ""))
+    code_hash = payload.get("code_hash", "")
+    if user_id is None or not code_hash:
+        return None
+
+    return RegistrationStateData(user_id=user_id, code_hash=code_hash)
+
+
 @dataclass
 class PasswordResetStateData:
     user_id: UUID

@@ -20,6 +20,7 @@ class SqlUserRepository(IUserRepository):
         first_name: str,
         last_name: str,
         level: str,
+        is_active: bool = False,
     ) -> User:
         row = UserORM(
             email=email.lower().strip(),
@@ -28,7 +29,7 @@ class SqlUserRepository(IUserRepository):
             last_name=last_name,
             level=level,
             role="user",
-            is_active=True,
+            is_active=is_active,
             created_at=datetime.now(timezone.utc),
         )
         self._session.add(row)
@@ -56,6 +57,14 @@ class SqlUserRepository(IUserRepository):
             update(UserORM)
             .where(UserORM.id == user_id)
             .values(password_hash=password_hash)
+        )
+        self._session.execute(stmt)
+
+    def activate_user(self, user_id: UUID) -> None:
+        stmt = (
+            update(UserORM)
+            .where(UserORM.id == user_id)
+            .values(is_active=True)
         )
         self._session.execute(stmt)
 
