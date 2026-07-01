@@ -7,20 +7,27 @@ from sqlalchemy.orm import Session
 
 from app.application.auth_service import AuthService
 from app.application.progress_service import ProgressService
+from app.core.config import get_settings
 from app.core.security import decode_token, parse_user_id
 from app.domain.entities import User
 from app.domain.ports import (
     IAdminProgressRepository,
     IAdminUserRepository,
     IContactRepository,
+    IEmailSender,
     ILessonRepository,
     IMultiplayerRepository,
+    IPasswordResetRepository,
     IProgressRepository,
     IQuizRepository,
     IStoryRepository,
     IUserRepository,
 )
 from app.infrastructure.db.session import get_db
+from app.infrastructure.email.smtp_email_sender import (
+    ConsoleFallbackEmailSender,
+    SmtpEmailSender,
+)
 from app.infrastructure.repositories.sql_admin_progress_repository import (
     SqlAdminProgressRepository,
 )
@@ -31,6 +38,9 @@ from app.infrastructure.repositories.sql_contact_repository import SqlContactRep
 from app.infrastructure.repositories.sql_lesson_repository import SqlLessonRepository
 from app.infrastructure.repositories.sql_multiplayer_repository import (
     SqlMultiplayerRepository,
+)
+from app.infrastructure.repositories.sql_password_reset_repository import (
+    SqlPasswordResetRepository,
 )
 from app.infrastructure.repositories.sql_progress_repository import SqlProgressRepository
 from app.infrastructure.repositories.sql_quiz_repository import SqlQuizRepository
@@ -48,10 +58,38 @@ def get_progress_repo(db: Session = Depends(get_db)) -> IProgressRepository:
     return SqlProgressRepository(db)
 
 
+def get_password_reset_repo(db: Session = Depends(get_db)) -> IPasswordResetRepository:
+    return SqlPasswordResetRepository(db)
+
+
+def get_email_sender() -> IEmailSender:
+    settings = get_settings()
+    if not settings.smtp_host:
+        return ConsoleFallbackEmailSender()
+    return SmtpEmailSender(
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        username=settings.smtp_username,
+        password=settings.smtp_password,
+        from_email=settings.smtp_from_email,
+        from_name=settings.smtp_from_name,
+        use_ssl=settings.smtp_use_ssl,
+        use_tls=settings.smtp_use_tls,
+    )
+
+
 def get_auth_service(
     users: IUserRepository = Depends(get_user_repo),
+    password_resets: IPasswordResetRepository = Depends(get_password_reset_repo),
+    email_sender: IEmailSender = Depends(get_email_sender),
 ) -> AuthService:
-    return AuthService(users)
+    settings = get_settings()
+    return AuthService(
+        users=users,
+        password_resets=password_resets,
+        email_sender=email_sender,
+        reset_expire_minutes=settings.password_reset_code_expire_minutes,
+    )
 
 
 def get_progress_service(

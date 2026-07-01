@@ -1,6 +1,6 @@
-# Education FR API
+# DELFy API
 
-Backend FastAPI + PostgreSQL pour l’application [education_fr](../education_fr/).
+Backend FastAPI + PostgreSQL pour l’application [DELFy](../education_fr_app/).
 
 ## Prérequis
 
@@ -16,6 +16,8 @@ Backend FastAPI + PostgreSQL pour l’application [education_fr](../education_fr
    ```
 
 2. Éditer `.env` : définir `DATABASE_URL`, `SECRET_KEY` (chaîne aléatoire longue en production), et optionnellement `CORS_ORIGINS`.
+
+Pour activer l'envoi d'e-mails de réinitialisation, définir aussi `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`. Sans `SMTP_HOST`, le code est simplement affiché dans les logs (mode développement).
 
 Exemple `DATABASE_URL` :
 
@@ -60,16 +62,43 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - Documentation interactive : <http://localhost:8000/docs>
 - Santé : `GET /health`
 
-## Endpoints (MVP)
+## Endpoints
 
-| Méthode | Chemin | Auth |
-|--------|--------|------|
-| GET | `/health` | Non |
-| POST | `/auth/register` | Non |
-| POST | `/auth/login` | Non |
-| GET | `/auth/me` | Bearer JWT |
-| GET | `/progress` | Bearer JWT |
-| PUT | `/progress` | Bearer JWT |
+### Authentification
+
+| Méthode | Chemin | Auth | Description |
+|---------|--------|------|-------------|
+| GET | `/health` | Non | Santé du service |
+| POST | `/auth/register` | Non | Créer un compte (vérifie l'e-mail réel) |
+| POST | `/auth/login` | Non | Connexion |
+| GET | `/auth/me` | Bearer JWT | Profil courant |
+| POST | `/auth/forgot-password` | Non | Demande un code de réinitialisation par e-mail |
+| POST | `/auth/verify-reset-code` | Non | Vérifie le code (retourne un `reset_token`) |
+| POST | `/auth/reset-password` | Non | Applique le nouveau mot de passe |
+| GET | `/progress` | Bearer JWT | Progression |
+| PUT | `/progress` | Bearer JWT | Mise à jour progression |
+
+### Flux de réinitialisation du mot de passe
+
+```
+1. POST /auth/forgot-password   { "email": "user@example.com" }
+   → Envoie un code à 6 chiffres par e-mail (valable 15 min)
+
+2. POST /auth/verify-reset-code { "email": "…", "code": "123456" }
+   → { "reset_token": "<jwt>" }  (valable 15 min, usage unique)
+
+3. POST /auth/reset-password    { "reset_token": "…", "new_password": "…" }
+   → { "message": "Mot de passe réinitialisé avec succès." }
+```
+
+### Validation d'e-mail à l'inscription
+
+L'API vérifie que l'adresse fournie :
+- est syntaxiquement valide,
+- possède des enregistrements MX/A valides (DNS),
+- n'appartient pas à un domaine de messagerie jetable (mailinator, yopmail, etc.)
+
+En cas d'échec → `422 Unprocessable Entity`.
 
 ## Tests
 

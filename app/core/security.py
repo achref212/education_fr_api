@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -8,6 +9,8 @@ from passlib.context import CryptContext
 from app.core.config import get_settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+_PASSWORD_RESET_PURPOSE = "password_reset"
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -44,3 +47,45 @@ def parse_user_id(sub: str) -> UUID | None:
         return UUID(sub)
     except ValueError:
         return None
+
+
+@dataclass
+class PasswordResetTokenData:
+    user_id: UUID
+    code_id: UUID
+
+
+def create_password_reset_token(
+    user_id: UUID,
+    code_id: UUID,
+    expires_minutes: int,
+) -> str:
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "code_id": str(code_id),
+        "purpose": _PASSWORD_RESET_PURPOSE,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_password_reset_token(token: str) -> PasswordResetTokenData | None:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+
+    if payload.get("purpose") != _PASSWORD_RESET_PURPOSE:
+        return None
+
+    user_id = parse_user_id(payload.get("sub", ""))
+    code_id = parse_user_id(payload.get("code_id", ""))
+    if user_id is None or code_id is None:
+        return None
+
+    return PasswordResetTokenData(user_id=user_id, code_id=code_id)

@@ -1,9 +1,12 @@
+import re
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.domain.entities import User
+
+_RESET_CODE_PATTERN = re.compile(r"^\d{6}$")
 
 
 class UserOut(BaseModel):
@@ -49,3 +52,25 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class VerifyResetCodeIn(BaseModel):
+    email: EmailStr
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class ResetTokenResponse(BaseModel):
+    reset_token: str
+
+
+class ResetPasswordIn(BaseModel):
+    reset_token: str
+    new_password: str = Field(min_length=6)
+
+
+class MessageResponse(BaseModel):
+    message: str

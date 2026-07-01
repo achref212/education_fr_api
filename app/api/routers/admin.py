@@ -34,6 +34,7 @@ from app.api.schemas.admin import (
     StoryUpdateIn,
     UserProgressItemOut,
 )
+from app.core.email_validation import InvalidEmailError, validate_real_email
 from app.core.security import hash_password
 from app.domain.entities import User
 from app.domain.ports import (
@@ -90,14 +91,21 @@ def create_user(
     admin_users: IAdminUserRepository = Depends(get_admin_user_repo),
     user_repo: IUserRepository = Depends(get_user_repo),
 ) -> AdminUserOut:
-    if user_repo.get_by_email(body.email):
+    try:
+        normalized_email = validate_real_email(body.email)
+    except InvalidEmailError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        ) from exc
+    if user_repo.get_by_email(normalized_email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="E-mail déjà utilisé",
         )
     h = hash_password(body.password)
     u = admin_users.create_user_with_role(
-        email=body.email,
+        email=normalized_email,
         password_hash=h,
         first_name=body.firstName,
         last_name=body.lastName,
@@ -445,14 +453,21 @@ def admin_setup(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Setup already completed",
         )
-    if user_repo.get_by_email(body.email):
+    try:
+        normalized_email = validate_real_email(body.email)
+    except InvalidEmailError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        ) from exc
+    if user_repo.get_by_email(normalized_email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="E-mail déjà utilisé",
         )
     h = hash_password(body.password)
     u = admin_users.create_user_with_role(
-        email=body.email,
+        email=normalized_email,
         password_hash=h,
         first_name=body.firstName,
         last_name=body.lastName,

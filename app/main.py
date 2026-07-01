@@ -6,7 +6,7 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-app = FastAPI(title="Education FR API", version="0.1.0")
+app = FastAPI(title="DELFy API", version="0.1.0")
 
 _origins = (
     [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

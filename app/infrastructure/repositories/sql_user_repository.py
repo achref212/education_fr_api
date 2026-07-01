@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domain.entities import User, UserWithHash
@@ -50,6 +50,14 @@ class SqlUserRepository(IUserRepository):
         if row is None:
             return None
         return _to_domain_user(row)
+
+    def update_password(self, user_id: UUID, password_hash: str) -> None:
+        stmt = (
+            update(UserORM)
+            .where(UserORM.id == user_id)
+            .values(password_hash=password_hash)
+        )
+        self._session.execute(stmt)
 
 
 def _to_domain_user(row: UserORM) -> User:
