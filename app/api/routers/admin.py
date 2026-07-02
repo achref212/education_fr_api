@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import (
     get_admin_progress_repo,
     get_admin_user_repo,
+    get_auth_service,
     get_contact_repo,
     get_lesson_repo,
     get_multiplayer_repo,
     get_quiz_repo,
+    get_school_repo,
     get_story_repo,
     get_user_repo,
     require_admin,
@@ -34,6 +36,8 @@ from app.api.schemas.admin import (
     StoryUpdateIn,
     UserProgressItemOut,
 )
+from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
+from app.application.auth_service import AuthError, AuthService
 from app.core.email_validation import InvalidEmailError, validate_real_email
 from app.core.security import hash_password
 from app.domain.entities import User
@@ -44,6 +48,7 @@ from app.domain.ports import (
     ILessonRepository,
     IMultiplayerRepository,
     IQuizRepository,
+    ISchoolRepository,
     IStoryRepository,
     IUserRepository,
 )
@@ -61,6 +66,7 @@ def admin_stats(
     stories: IStoryRepository = Depends(get_story_repo),
     contact: IContactRepository = Depends(get_contact_repo),
     rooms: IMultiplayerRepository = Depends(get_multiplayer_repo),
+    schools: ISchoolRepository = Depends(get_school_repo),
 ) -> AdminStatsOut:
     return AdminStatsOut(
         totalUsers=users.count_users(),
@@ -70,6 +76,7 @@ def admin_stats(
         totalStories=stories.count(),
         unreadMessages=contact.count_unread(),
         multiplayerRooms=rooms.count(),
+        totalSchools=schools.count(),
         usersByLevel=users.count_by_level(),
         lessonsByCategory=lessons.count_by_category(),
     )
@@ -111,6 +118,9 @@ def create_user(
         last_name=body.lastName,
         level=body.level,
         role=body.role,
+        phone=body.phone,
+        date_of_birth=body.dateOfBirth,
+        class_level=body.classLevel,
     )
     db.commit()
     return AdminUserOut.from_domain(u)
@@ -139,6 +149,9 @@ def update_user(
         role=body.role,
         level=body.level,
         is_active=body.isActive,
+        class_level=body.classLevel,
+        phone=body.phone,
+        date_of_birth=body.dateOfBirth,
     )
     if u is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -436,6 +449,124 @@ def list_multiplayer_rooms(
     rooms: IMultiplayerRepository = Depends(get_multiplayer_repo),
 ) -> list[MultiplayerRoomOut]:
     return [MultiplayerRoomOut.from_domain(x) for x in rooms.list_all()]
+
+
+# --- Schools ---
+
+
+@router.get("/schools", response_model=list[SchoolOut])
+def list_schools(
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> list[SchoolOut]:
+    return [SchoolOut.from_domain(s) for s in schools.list_all()]
+
+
+@router.post("/schools", response_model=SchoolCreateOut, status_code=status.HTTP_201_CREATED)
+def create_school(
+    body: SchoolCreate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+    auth: AuthService = Depends(get_auth_service),
+) -> SchoolCreateOut:
+    try:
+        school, plain_password = auth.create_school_account(
+            name=body.name,
+            email=body.email,
+            admin_id=admin.id,
+            address=body.address,
+            city=body.city,
+            postal_code=body.postalCode,
+            phone=body.phone,
+            director_name=body.directorName,
+        )
+        db.commit()
+    except AuthError as exc:
+        db.rollback()
+        if exc.code == "email_taken":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=exc.message
+            ) from exc
+        if exc.code == "invalid_email":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+    return SchoolCreateOut.from_domain(school, plain_password)
+
+
+@router.get("/schools/{school_id}", response_model=SchoolOut)
+def get_school(
+    school_id: UUID,
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> SchoolOut:
+    school = schools.get_by_id(school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
+    return SchoolOut.from_domain(school)
+
+
+@router.put("/schools/{school_id}", response_model=SchoolOut)
+def update_school(
+    school_id: UUID,
+    body: SchoolUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> SchoolOut:
+    school = schools.update(
+        school_id,
+        name=body.name,
+        address=body.address,
+        city=body.city,
+        postal_code=body.postalCode,
+        phone=body.phone,
+        director_name=body.directorName,
+        is_active=body.isActive,
+    )
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
+    db.commit()
+    return SchoolOut.from_domain(school)
+
+
+@router.delete("/schools/{school_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_school(
+    school_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> None:
+    if not schools.delete(school_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
+    db.commit()
+
+
+@router.get("/schools/{school_id}/students", response_model=list[AdminUserOut])
+def list_school_students(
+    school_id: UUID,
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> list[AdminUserOut]:
+    school = schools.get_by_id(school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
+    return [AdminUserOut.from_domain(u) for u in schools.list_students(school_id)]
+
+
+@router.get("/schools/{school_id}/professors", response_model=list[AdminUserOut])
+def list_school_professors(
+    school_id: UUID,
+    _admin: User = Depends(require_admin),
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> list[AdminUserOut]:
+    school = schools.get_by_id(school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
+    return [AdminUserOut.from_domain(u) for u in schools.list_professors(school_id)]
 
 
 # --- One-time admin bootstrap ---

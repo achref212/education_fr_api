@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,11 +16,16 @@ class UserORM(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(
+        String(320), unique=True, index=True, nullable=False
+    )
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     first_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_name: Mapped[str] = mapped_column(String(255), nullable=False)
     level: Mapped[str] = mapped_column(String(128), nullable=False)
+    class_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
     role: Mapped[str] = mapped_column(
         String(32), nullable=False, default="user", server_default="user"
     )
@@ -31,6 +36,34 @@ class UserORM(Base):
         DateTime(timezone=True), nullable=False
     )
 
-    progress: Mapped["UserProgressORM | None"] = relationship(
+    school_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    teacher_school_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    progress: Mapped[UserProgressORM | None] = relationship(  # type: ignore[name-defined]
         "UserProgressORM", back_populates="user", uselist=False
+    )
+    school: Mapped[SchoolORM | None] = relationship(  # type: ignore[name-defined]
+        "SchoolORM",
+        foreign_keys=[school_id],
+        back_populates="students",
+    )
+    teacher_school: Mapped[SchoolORM | None] = relationship(  # type: ignore[name-defined]
+        "SchoolORM",
+        foreign_keys=[teacher_school_id],
+        back_populates="professors",
+    )
+    received_recommendations: Mapped[list[RecommendationORM]] = relationship(  # type: ignore[name-defined]
+        "RecommendationORM",
+        foreign_keys="[RecommendationORM.student_id]",
+        back_populates="student",
     )

@@ -21,6 +21,22 @@ class SqlLessonRepository(ILessonRepository):
         rows = self._session.scalars(stmt).all()
         return [_to_domain(r) for r in rows]
 
+    def list_by_level(self, level: str) -> list[Lesson]:
+        stmt = (
+            select(LessonORM)
+            .where(LessonORM.level == level)
+            .order_by(LessonORM.sort_order, LessonORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
+    def list_by_category(self, category: str) -> list[Lesson]:
+        stmt = (
+            select(LessonORM)
+            .where(LessonORM.category == category)
+            .order_by(LessonORM.sort_order, LessonORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
     def get(self, lesson_id: UUID) -> Lesson | None:
         row = self._session.get(LessonORM, lesson_id)
         return _to_domain(row) if row else None

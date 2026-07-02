@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -28,6 +28,7 @@ class AdminStatsOut(BaseModel):
     totalStories: int
     unreadMessages: int
     multiplayerRooms: int
+    totalSchools: int = 0
     usersByLevel: dict[str, int] = Field(default_factory=dict)
     lessonsByCategory: dict[str, int] = Field(default_factory=dict)
 
@@ -47,6 +48,12 @@ class AdminUserOut(BaseModel):
     role: str
     isActive: bool
 
+    classLevel: str | None = None
+    schoolId: UUID | None = None
+    teacherSchoolId: UUID | None = None
+    phone: str | None = None
+    dateOfBirth: date | None = None
+
     @classmethod
     def from_domain(cls, u: User) -> "AdminUserOut":
         return cls(
@@ -58,6 +65,11 @@ class AdminUserOut(BaseModel):
             createdAt=u.created_at,
             role=u.role,
             isActive=u.is_active,
+            classLevel=u.class_level,
+            schoolId=u.school_id,
+            teacherSchoolId=u.teacher_school_id,
+            phone=u.phone,
+            dateOfBirth=u.date_of_birth,
         )
 
 
@@ -65,6 +77,9 @@ class AdminUserUpdateIn(BaseModel):
     role: str | None = None
     level: str | None = None
     isActive: bool | None = Field(None, alias="isActive")
+    classLevel: str | None = None
+    phone: str | None = None
+    dateOfBirth: date | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -76,6 +91,9 @@ class AdminUserCreateIn(BaseModel):
     lastName: str
     level: str
     role: str = "user"
+    phone: str | None = None
+    dateOfBirth: date | None = None
+    classLevel: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -273,6 +291,8 @@ class MultiplayerRoomOut(BaseModel):
     label: str | None
     createdAt: datetime
     updatedAt: datetime
+    professorId: UUID | None = None
+    schoolId: UUID | None = None
 
     @classmethod
     def from_domain(cls, x: MultiplayerRoom) -> "MultiplayerRoomOut":
@@ -283,6 +303,8 @@ class MultiplayerRoomOut(BaseModel):
             label=x.label,
             createdAt=x.created_at,
             updatedAt=x.updated_at,
+            professorId=x.professor_id,
+            schoolId=x.school_id,
         )
 
 

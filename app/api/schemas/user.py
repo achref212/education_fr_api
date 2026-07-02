@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from app.domain.entities import User
 
 _RESET_CODE_PATTERN = re.compile(r"^\d{6}$")
+
+CLASS_LEVELS = ["2e", "3e", "4e", "5e", "6e", "7e", "8e", "9e"]
 
 
 class UserOut(BaseModel):
@@ -20,6 +22,11 @@ class UserOut(BaseModel):
     createdAt: datetime
     role: str = "user"
     isActive: bool = True
+    classLevel: str | None = None
+    schoolId: UUID | None = None
+    teacherSchoolId: UUID | None = None
+    phone: str | None = None
+    dateOfBirth: date | None = None
 
     @classmethod
     def from_domain(cls, u: User) -> "UserOut":
@@ -32,6 +39,11 @@ class UserOut(BaseModel):
             createdAt=u.created_at,
             role=u.role,
             isActive=u.is_active,
+            classLevel=u.class_level,
+            schoolId=u.school_id,
+            teacherSchoolId=u.teacher_school_id,
+            phone=u.phone,
+            dateOfBirth=u.date_of_birth,
         )
 
 
@@ -41,27 +53,30 @@ class RegisterIn(BaseModel):
     firstName: str
     lastName: str
     level: str
+    classLevel: str | None = None
+    schoolId: UUID | None = None
+    phone: str | None = None
+    dateOfBirth: date | None = None
+
 
 class RegisterOut(BaseModel):
     message: str
     registration_state_token: str
+
 
 class VerifyRegistrationIn(BaseModel):
     email: EmailStr
     code: str = Field(pattern=r"^\d{6}$")
     registration_state_token: str
 
+
 class ResendActivationIn(BaseModel):
     email: EmailStr
+
 
 class ResendActivationOut(BaseModel):
     message: str
     registration_state_token: str | None = None
-    email: EmailStr
-    password: str = Field(min_length=6)
-    firstName: str
-    lastName: str
-    level: str
 
 
 class LoginIn(BaseModel):
@@ -72,7 +87,8 @@ class LoginIn(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: UserOut
+    role: str
+    user: UserOut | None = None
 
 
 class ForgotPasswordIn(BaseModel):

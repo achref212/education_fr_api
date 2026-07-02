@@ -39,6 +39,11 @@ class Settings(BaseSettings):
         default=15, validation_alias="PASSWORD_RESET_CODE_EXPIRE_MINUTES"
     )
 
+    # Dashboard URL sent in welcome emails (school / prof)
+    dashboard_url: str = Field(
+        default="https://dashboard.delfy.app", validation_alias="DASHBOARD_URL"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

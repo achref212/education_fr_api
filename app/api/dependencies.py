@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.application.auth_service import AuthService
 from app.application.progress_service import ProgressService
 from app.core.config import get_settings
-from app.core.security import decode_token, parse_user_id
-from app.domain.entities import User
+from app.core.security import decode_token, parse_school_id, parse_user_id
+from app.domain.entities import School, User
 from app.domain.ports import (
     IAdminProgressRepository,
     IAdminUserRepository,
@@ -19,6 +19,8 @@ from app.domain.ports import (
     IMultiplayerRepository,
     IProgressRepository,
     IQuizRepository,
+    IRecommendationRepository,
+    ISchoolRepository,
     IStoryRepository,
     IUserRepository,
 )
@@ -40,6 +42,10 @@ from app.infrastructure.repositories.sql_multiplayer_repository import (
 )
 from app.infrastructure.repositories.sql_progress_repository import SqlProgressRepository
 from app.infrastructure.repositories.sql_quiz_repository import SqlQuizRepository
+from app.infrastructure.repositories.sql_recommendation_repository import (
+    SqlRecommendationRepository,
+)
+from app.infrastructure.repositories.sql_school_repository import SqlSchoolRepository
 from app.infrastructure.repositories.sql_story_repository import SqlStoryRepository
 from app.infrastructure.repositories.sql_user_repository import SqlUserRepository
 
@@ -52,6 +58,14 @@ def get_user_repo(db: Session = Depends(get_db)) -> IUserRepository:
 
 def get_progress_repo(db: Session = Depends(get_db)) -> IProgressRepository:
     return SqlProgressRepository(db)
+
+
+def get_school_repo(db: Session = Depends(get_db)) -> ISchoolRepository:
+    return SqlSchoolRepository(db)
+
+
+def get_recommendation_repo(db: Session = Depends(get_db)) -> IRecommendationRepository:
+    return SqlRecommendationRepository(db)
 
 
 def get_email_sender() -> IEmailSender:
@@ -73,12 +87,19 @@ def get_email_sender() -> IEmailSender:
 def get_auth_service(
     users: IUserRepository = Depends(get_user_repo),
     email_sender: IEmailSender = Depends(get_email_sender),
+    schools: ISchoolRepository = Depends(get_school_repo),
+    admin_users: IAdminUserRepository = Depends(
+        lambda db=Depends(get_db): SqlAdminUserRepository(db)
+    ),
 ) -> AuthService:
     settings = get_settings()
     return AuthService(
         users=users,
         email_sender=email_sender,
         reset_expire_minutes=settings.password_reset_code_expire_minutes,
+        schools=schools,
+        admin_users=admin_users,
+        dashboard_url=settings.dashboard_url,
     )
 
 
@@ -124,6 +145,42 @@ def get_current_user(
     return user
 
 
+def get_current_school(
+    db: Session = Depends(get_db),
+    cred: HTTPAuthorizationCredentials | None = Depends(security),
+) -> School:
+    if cred is None or not cred.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    sub = decode_token(cred.credentials)
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    school_id = parse_school_id(sub)
+    if school_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid school token",
+        )
+    repo = SqlSchoolRepository(db)
+    school = repo.get_by_id(school_id)
+    if school is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="School not found",
+        )
+    if not school.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="School account disabled",
+        )
+    return school
+
+
 def require_admin(
     user: User = Depends(get_current_user),
 ) -> User:
@@ -131,6 +188,28 @@ def require_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin only",
+        )
+    return user
+
+
+def require_prof(
+    user: User = Depends(get_current_user),
+) -> User:
+    if user.role not in ("prof", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Professor access only",
+        )
+    return user
+
+
+def require_student(
+    user: User = Depends(get_current_user),
+) -> User:
+    if user.role not in ("user", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Student access only",
         )
     return user
 

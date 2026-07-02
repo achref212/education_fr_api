@@ -50,6 +50,30 @@ def parse_user_id(sub: str) -> UUID | None:
         return None
 
 
+_SCHOOL_PREFIX = "school:"
+
+
+def create_school_token(school_id: UUID, expires_delta: timedelta | None = None) -> str:
+    settings = get_settings()
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode: dict[str, Any] = {
+        "sub": f"{_SCHOOL_PREFIX}{school_id}",
+        "exp": expire,
+    }
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+
+def parse_school_id(sub: str) -> UUID | None:
+    if not sub.startswith(_SCHOOL_PREFIX):
+        return None
+    try:
+        return UUID(sub[len(_SCHOOL_PREFIX):])
+    except ValueError:
+        return None
+
+
 _REGISTRATION_PURPOSE = "registration_activation"
 
 def create_registration_state_token(

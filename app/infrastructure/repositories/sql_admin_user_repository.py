@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -21,6 +21,10 @@ class SqlAdminUserRepository(IAdminUserRepository):
         last_name: str,
         level: str,
         role: str,
+        teacher_school_id: UUID | None = None,
+        class_level: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
     ) -> User:
         row = UserORM(
             email=email.lower().strip(),
@@ -31,6 +35,10 @@ class SqlAdminUserRepository(IAdminUserRepository):
             role=role,
             is_active=True,
             created_at=datetime.now(timezone.utc),
+            teacher_school_id=teacher_school_id,
+            class_level=class_level,
+            phone=phone,
+            date_of_birth=date_of_birth,
         )
         self._session.add(row)
         self._session.flush()
@@ -40,6 +48,14 @@ class SqlAdminUserRepository(IAdminUserRepository):
         stmt = select(UserORM).order_by(UserORM.created_at.desc())
         rows = self._session.scalars(stmt).all()
         return [_to_user(r) for r in rows]
+
+    def list_by_school(self, school_id: UUID) -> list[User]:
+        stmt = (
+            select(UserORM)
+            .where(UserORM.school_id == school_id)
+            .order_by(UserORM.last_name, UserORM.first_name)
+        )
+        return [_to_user(r) for r in self._session.scalars(stmt).all()]
 
     def count_users(self) -> int:
         return int(
@@ -78,6 +94,10 @@ class SqlAdminUserRepository(IAdminUserRepository):
         role: str | None = None,
         level: str | None = None,
         is_active: bool | None = None,
+        school_id: UUID | None = None,
+        class_level: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
     ) -> User | None:
         row = self._session.get(UserORM, user_id)
         if row is None:
@@ -88,7 +108,14 @@ class SqlAdminUserRepository(IAdminUserRepository):
             row.level = level
         if is_active is not None:
             row.is_active = is_active
-        # bump updated: users table has no updated_at, flush is enough
+        if school_id is not None:
+            row.school_id = school_id
+        if class_level is not None:
+            row.class_level = class_level
+        if phone is not None:
+            row.phone = phone
+        if date_of_birth is not None:
+            row.date_of_birth = date_of_birth
         self._session.flush()
         return _to_user(row)
 
@@ -111,4 +138,9 @@ def _to_user(row: UserORM) -> User:
         created_at=row.created_at,
         role=row.role,
         is_active=row.is_active,
+        class_level=row.class_level,
+        school_id=row.school_id,
+        teacher_school_id=row.teacher_school_id,
+        phone=row.phone,
+        date_of_birth=row.date_of_birth,
     )

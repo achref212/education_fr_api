@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_auth_service, get_current_user, get_user_repo
+from app.api.dependencies import get_auth_service, get_current_user, get_school_repo, get_user_repo
+from app.api.schemas.school import SchoolOut, SchoolTokenResponse
 from app.api.schemas.user import (
     ForgotPasswordIn,
     ForgotPasswordOut,
@@ -20,6 +21,7 @@ from app.api.schemas.user import (
 )
 from app.application.auth_service import AuthError, AuthService
 from app.domain.entities import User
+from app.domain.ports import ISchoolRepository
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,6 +40,10 @@ def register(
             first_name=body.firstName,
             last_name=body.lastName,
             level=body.level,
+            phone=body.phone,
+            date_of_birth=body.dateOfBirth,
+            class_level=body.classLevel,
+            school_id=str(body.schoolId) if body.schoolId else None,
         )
         db.commit()
     except AuthError as e:
@@ -54,6 +60,7 @@ def register(
         registration_state_token=state_token,
     )
 
+
 @router.post("/verify-registration", response_model=TokenResponse)
 def verify_registration(
     body: VerifyRegistrationIn,
@@ -61,20 +68,26 @@ def verify_registration(
     auth: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     try:
-        user, token = auth.verify_registration(body.email, body.code, body.registration_state_token)
+        user, token = auth.verify_registration(
+            body.email, body.code, body.registration_state_token
+        )
         db.commit()
     except AuthError as e:
         db.rollback()
         if e.code == "already_active":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message) from e
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=e.message
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.message
         ) from e
     return TokenResponse(
         access_token=token,
         token_type="bearer",
+        role=user.role,
         user=UserOut.from_domain(user),
     )
+
 
 @router.post("/resend-activation", response_model=ResendActivationOut)
 def resend_activation(
@@ -90,12 +103,39 @@ def resend_activation(
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 def login(
     body: LoginIn,
     db: Session = Depends(get_db),
     auth: AuthService = Depends(get_auth_service),
-) -> TokenResponse:
+    school_repo: ISchoolRepository = Depends(get_school_repo),
+) -> TokenResponse | SchoolTokenResponse:
+    """
+    Unified login endpoint.
+    - Returns TokenResponse for users (student / prof / admin)
+    - Returns SchoolTokenResponse for school accounts
+    """
+    school_row = school_repo.get_by_email(body.email)
+    if school_row is not None:
+        try:
+            school, token = auth.login_school(body.email, body.password)
+            db.commit()
+        except AuthError as e:
+            db.rollback()
+            if e.code == "account_inactive":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail=e.message
+                ) from e
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message
+            ) from e
+        return SchoolTokenResponse(
+            access_token=token,
+            token_type="bearer",
+            role="school",
+            school=SchoolOut.from_domain(school),
+        )
+
     try:
         user, token = auth.login(body.email, body.password)
         db.commit()
@@ -111,6 +151,7 @@ def login(
     return TokenResponse(
         access_token=token,
         token_type="bearer",
+        role=user.role,
         user=UserOut.from_domain(user),
     )
 
@@ -144,7 +185,9 @@ def verify_reset_code(
     auth: AuthService = Depends(get_auth_service),
 ) -> ResetTokenResponse:
     try:
-        reset_token = auth.verify_reset_code(body.email, body.code, body.reset_state_token)
+        reset_token = auth.verify_reset_code(
+            body.email, body.code, body.reset_state_token
+        )
         db.commit()
     except AuthError as e:
         db.rollback()

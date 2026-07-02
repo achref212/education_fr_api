@@ -19,6 +19,14 @@ class SqlStoryRepository(IStoryRepository):
         rows = self._session.scalars(stmt).all()
         return [_to_domain(r) for r in rows]
 
+    def list_by_level(self, level: str) -> list[Story]:
+        stmt = (
+            select(StoryORM)
+            .where(StoryORM.level == level)
+            .order_by(StoryORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
     def get(self, story_id: UUID) -> Story | None:
         row = self._session.get(StoryORM, story_id)
         return _to_domain(row) if row else None

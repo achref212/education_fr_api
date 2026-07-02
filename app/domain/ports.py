@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -7,6 +8,9 @@ from app.domain.entities import (
     MultiplayerRoom,
     ProgressData,
     QuizQuestion,
+    Recommendation,
+    School,
+    SchoolWithHash,
     Story,
     User,
     UserProgressRow,
@@ -23,6 +27,10 @@ class IUserRepository(Protocol):
         last_name: str,
         level: str,
         is_active: bool = False,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+        class_level: str | None = None,
+        school_id: str | None = None,
     ) -> User: ...
 
     def get_by_email(self, email: str) -> UserWithHash | None: ...
@@ -51,6 +59,22 @@ class IEmailSender(Protocol):
         expires_minutes: int,
     ) -> None: ...
 
+    def send_school_welcome(
+        self,
+        to_email: str,
+        school_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None: ...
+
+    def send_prof_welcome(
+        self,
+        to_email: str,
+        prof_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None: ...
+
 
 class IProgressRepository(Protocol):
     def get_for_user(self, user_id: UUID) -> ProgressData: ...
@@ -67,6 +91,10 @@ class IAdminUserRepository(Protocol):
         last_name: str,
         level: str,
         role: str,
+        teacher_school_id: UUID | None = None,
+        class_level: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
     ) -> User: ...
 
     def list_users(self) -> list[User]: ...
@@ -86,13 +114,74 @@ class IAdminUserRepository(Protocol):
         role: str | None = None,
         level: str | None = None,
         is_active: bool | None = None,
+        school_id: UUID | None = None,
+        class_level: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
     ) -> User | None: ...
 
     def delete_user(self, user_id: UUID) -> bool: ...
 
 
+class ISchoolRepository(Protocol):
+    def create(
+        self,
+        name: str,
+        email: str,
+        password_hash: str,
+        created_by_admin_id: UUID,
+        address: str | None,
+        city: str | None,
+        postal_code: str | None,
+        phone: str | None,
+        director_name: str | None,
+    ) -> School: ...
+
+    def get_by_id(self, school_id: UUID) -> School | None: ...
+
+    def get_by_email(self, email: str) -> SchoolWithHash | None: ...
+
+    def list_all(self) -> list[School]: ...
+
+    def update(
+        self,
+        school_id: UUID,
+        *,
+        name: str | None = None,
+        address: str | None = None,
+        city: str | None = None,
+        postal_code: str | None = None,
+        phone: str | None = None,
+        director_name: str | None = None,
+        is_active: bool | None = None,
+    ) -> School | None: ...
+
+    def delete(self, school_id: UUID) -> bool: ...
+
+    def list_students(self, school_id: UUID) -> list[User]: ...
+
+    def list_professors(self, school_id: UUID) -> list[User]: ...
+
+    def count(self) -> int: ...
+
+
+class IRecommendationRepository(Protocol):
+    def create(
+        self,
+        student_id: UUID,
+        professor_id: UUID,
+        content: str,
+    ) -> Recommendation: ...
+
+    def list_for_student(self, student_id: UUID) -> list[Recommendation]: ...
+
+
 class ILessonRepository(Protocol):
     def list_all(self) -> list[Lesson]: ...
+
+    def list_by_level(self, level: str) -> list[Lesson]: ...
+
+    def list_by_category(self, category: str) -> list[Lesson]: ...
 
     def get(self, lesson_id: UUID) -> Lesson | None: ...
 
@@ -126,6 +215,8 @@ class ILessonRepository(Protocol):
 class IQuizRepository(Protocol):
     def list_all(self) -> list[QuizQuestion]: ...
 
+    def list_by_level(self, level: str) -> list[QuizQuestion]: ...
+
     def get(self, question_id: UUID) -> QuizQuestion | None: ...
 
     def create(
@@ -157,6 +248,8 @@ class IQuizRepository(Protocol):
 
 class IStoryRepository(Protocol):
     def list_all(self) -> list[Story]: ...
+
+    def list_by_level(self, level: str) -> list[Story]: ...
 
     def get(self, story_id: UUID) -> Story | None: ...
 
@@ -201,5 +294,15 @@ class IAdminProgressRepository(Protocol):
 
 class IMultiplayerRepository(Protocol):
     def list_all(self) -> list[MultiplayerRoom]: ...
+
+    def list_by_professor(self, professor_id: UUID) -> list[MultiplayerRoom]: ...
+
+    def create(
+        self,
+        room_code: str,
+        label: str | None,
+        professor_id: UUID,
+        school_id: UUID | None,
+    ) -> MultiplayerRoom: ...
 
     def count(self) -> int: ...

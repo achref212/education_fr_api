@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,12 +14,47 @@ class User:
     created_at: datetime
     role: str = "user"
     is_active: bool = True
+    class_level: str | None = None
+    school_id: UUID | None = None
+    teacher_school_id: UUID | None = None
+    phone: str | None = None
+    date_of_birth: date | None = None
 
 
 @dataclass
 class UserWithHash:
     user: User
     password_hash: str
+
+
+@dataclass
+class School:
+    id: UUID
+    name: str
+    email: str
+    is_active: bool
+    created_at: datetime
+    address: str | None = None
+    city: str | None = None
+    postal_code: str | None = None
+    phone: str | None = None
+    director_name: str | None = None
+    created_by_admin_id: UUID | None = None
+
+
+@dataclass
+class SchoolWithHash:
+    school: School
+    password_hash: str
+
+
+@dataclass
+class Recommendation:
+    id: UUID
+    student_id: UUID
+    content: str
+    created_at: datetime
+    professor_id: UUID | None = None
 
 
 @dataclass
@@ -101,6 +136,8 @@ class MultiplayerRoom:
     label: str | None
     created_at: datetime
     updated_at: datetime
+    professor_id: UUID | None = None
+    school_id: UUID | None = None
 
 
 @dataclass

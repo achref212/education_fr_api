@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -21,6 +21,10 @@ class SqlUserRepository(IUserRepository):
         last_name: str,
         level: str,
         is_active: bool = False,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+        class_level: str | None = None,
+        school_id: str | None = None,
     ) -> User:
         row = UserORM(
             email=email.lower().strip(),
@@ -31,6 +35,10 @@ class SqlUserRepository(IUserRepository):
             role="user",
             is_active=is_active,
             created_at=datetime.now(timezone.utc),
+            phone=phone,
+            date_of_birth=date_of_birth,
+            class_level=class_level,
+            school_id=school_id,
         )
         self._session.add(row)
         self._session.flush()
@@ -79,4 +87,9 @@ def _to_domain_user(row: UserORM) -> User:
         created_at=row.created_at,
         role=row.role,
         is_active=row.is_active,
+        class_level=row.class_level,
+        school_id=row.school_id,
+        teacher_school_id=row.teacher_school_id,
+        phone=row.phone,
+        date_of_birth=row.date_of_birth,
     )

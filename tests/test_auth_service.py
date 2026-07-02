@@ -1,6 +1,6 @@
 """Unit tests for AuthService with in-memory fakes (no database)."""
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -28,6 +28,10 @@ class FakeUserRepo(IUserRepository):
         last_name: str,
         level: str,
         is_active: bool = False,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+        class_level: str | None = None,
+        school_id: str | None = None,
     ) -> User:
         u = User(
             id=uuid4(),
@@ -38,6 +42,9 @@ class FakeUserRepo(IUserRepository):
             created_at=datetime.now(timezone.utc),
             role="user",
             is_active=is_active,
+            phone=phone,
+            date_of_birth=date_of_birth,
+            class_level=class_level,
         )
         self.users.append(UserWithHash(user=u, password_hash=password_hash))
         return u
@@ -105,6 +112,28 @@ class FakeEmailSender(IEmailSender):
                 "code": code,
                 "expires_minutes": expires_minutes,
             }
+        )
+
+    def send_school_welcome(
+        self,
+        to_email: str,
+        school_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        self.sent.append(
+            {"type": "school_welcome", "to_email": to_email, "school_name": school_name}
+        )
+
+    def send_prof_welcome(
+        self,
+        to_email: str,
+        prof_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        self.sent.append(
+            {"type": "prof_welcome", "to_email": to_email, "prof_name": prof_name}
         )
 
 

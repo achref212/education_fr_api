@@ -11,7 +11,9 @@ import certifi
 from app.domain.ports import IEmailSender
 from app.infrastructure.email.templates import (
     build_activation_code_email_html,
+    build_prof_welcome_email_html,
     build_reset_code_email_html,
+    build_school_welcome_email_html,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,84 @@ class SmtpEmailSender(IEmailSender):
         self._dispatch(msg.as_string(), to_email)
         logger.info("Activation code sent to %s", to_email)
 
+    def send_school_welcome(
+        self,
+        to_email: str,
+        school_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        html_body = build_school_welcome_email_html(
+            school_name=school_name,
+            email=to_email,
+            plain_password=plain_password,
+            dashboard_url=dashboard_url,
+        )
+        msg = MIMEMultipart("related")
+        msg["Subject"] = f"Accès tableau de bord DELFy — {school_name}"
+        msg["From"] = f"{self._from_name} <{self._from_email}>"
+        msg["To"] = to_email
+        alternative = MIMEMultipart("alternative")
+        msg.attach(alternative)
+        plain_text = (
+            f"Bienvenue sur DELFy !\n\n"
+            f"Établissement : {school_name}\n"
+            f"E-mail : {to_email}\n"
+            f"Mot de passe : {plain_password}\n\n"
+            f"Tableau de bord : {dashboard_url}\n\n"
+            "Veuillez changer votre mot de passe dès la première connexion.\n\n"
+            "— DELFy"
+        )
+        alternative.attach(MIMEText(plain_text, "plain", "utf-8"))
+        alternative.attach(MIMEText(html_body, "html", "utf-8"))
+        if _LOGO_PATH.exists():
+            with _LOGO_PATH.open("rb") as logo_file:
+                logo_part = MIMEImage(logo_file.read())
+            logo_part.add_header("Content-ID", "<logo>")
+            logo_part.add_header("Content-Disposition", "inline", filename="logo.png")
+            msg.attach(logo_part)
+        self._dispatch(msg.as_string(), to_email)
+        logger.info("School welcome email sent to %s", to_email)
+
+    def send_prof_welcome(
+        self,
+        to_email: str,
+        prof_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        html_body = build_prof_welcome_email_html(
+            prof_name=prof_name,
+            email=to_email,
+            plain_password=plain_password,
+            dashboard_url=dashboard_url,
+        )
+        msg = MIMEMultipart("related")
+        msg["Subject"] = "Accès professeur DELFy — Vos identifiants"
+        msg["From"] = f"{self._from_name} <{self._from_email}>"
+        msg["To"] = f"{prof_name} <{to_email}>"
+        alternative = MIMEMultipart("alternative")
+        msg.attach(alternative)
+        plain_text = (
+            f"Bonjour {prof_name},\n\n"
+            f"Un compte professeur DELFy a été créé pour vous.\n"
+            f"E-mail : {to_email}\n"
+            f"Mot de passe : {plain_password}\n\n"
+            f"Espace professeur : {dashboard_url}\n\n"
+            "Veuillez changer votre mot de passe dès la première connexion.\n\n"
+            "— DELFy"
+        )
+        alternative.attach(MIMEText(plain_text, "plain", "utf-8"))
+        alternative.attach(MIMEText(html_body, "html", "utf-8"))
+        if _LOGO_PATH.exists():
+            with _LOGO_PATH.open("rb") as logo_file:
+                logo_part = MIMEImage(logo_file.read())
+            logo_part.add_header("Content-ID", "<logo>")
+            logo_part.add_header("Content-Disposition", "inline", filename="logo.png")
+            msg.attach(logo_part)
+        self._dispatch(msg.as_string(), to_email)
+        logger.info("Prof welcome email sent to %s", to_email)
+
     def _dispatch(self, raw_message: str, to_email: str) -> None:
         context = ssl.create_default_context(cafile=certifi.where())
         if self._use_ssl:
@@ -166,4 +246,34 @@ class ConsoleFallbackEmailSender(IEmailSender):
             to_name,
             code,
             expires_minutes,
+        )
+
+    def send_school_welcome(
+        self,
+        to_email: str,
+        school_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        logger.warning(
+            "[DEV] School welcome for %s (%s): password=%s  dashboard=%s",
+            to_email,
+            school_name,
+            plain_password,
+            dashboard_url,
+        )
+
+    def send_prof_welcome(
+        self,
+        to_email: str,
+        prof_name: str,
+        plain_password: str,
+        dashboard_url: str,
+    ) -> None:
+        logger.warning(
+            "[DEV] Prof welcome for %s (%s): password=%s  dashboard=%s",
+            to_email,
+            prof_name,
+            plain_password,
+            dashboard_url,
         )
