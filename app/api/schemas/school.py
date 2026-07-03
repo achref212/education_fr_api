@@ -37,6 +37,7 @@ class SchoolOut(BaseModel):
     name: str
     email: str
     isActive: bool
+    mustChangePassword: bool = False
     createdAt: datetime
     address: str | None = None
     city: str | None = None
@@ -52,6 +53,7 @@ class SchoolOut(BaseModel):
             name=s.name,
             email=s.email,
             isActive=s.is_active,
+            mustChangePassword=s.must_change_password,
             createdAt=s.created_at,
             address=s.address,
             city=s.city,

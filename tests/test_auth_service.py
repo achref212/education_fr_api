@@ -42,12 +42,19 @@ class FakeUserRepo(IUserRepository):
             created_at=datetime.now(timezone.utc),
             role="user",
             is_active=is_active,
+            must_change_password=False,
             phone=phone,
             date_of_birth=date_of_birth,
             class_level=class_level,
         )
         self.users.append(UserWithHash(user=u, password_hash=password_hash))
         return u
+
+    def change_password(self, user_id: UUID, password_hash: str) -> None:
+        for u in self.users:
+            if u.user.id == user_id:
+                u.password_hash = password_hash
+                u.user.must_change_password = False
 
     def get_by_email(self, email: str) -> UserWithHash | None:
         for u in self.users:

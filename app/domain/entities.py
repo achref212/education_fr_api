@@ -14,6 +14,7 @@ class User:
     created_at: datetime
     role: str = "user"
     is_active: bool = True
+    must_change_password: bool = False
     class_level: str | None = None
     school_id: UUID | None = None
     teacher_school_id: UUID | None = None
@@ -33,6 +34,7 @@ class School:
     name: str
     email: str
     is_active: bool
+    must_change_password: bool
     created_at: datetime
     address: str | None = None
     city: str | None = None

@@ -25,6 +25,7 @@ class SqlSchoolRepository(ISchoolRepository):
         postal_code: str | None,
         phone: str | None,
         director_name: str | None,
+        must_change_password: bool = False,
     ) -> School:
         row = SchoolORM(
             name=name,
@@ -37,11 +38,22 @@ class SqlSchoolRepository(ISchoolRepository):
             phone=phone,
             director_name=director_name,
             is_active=True,
+            must_change_password=must_change_password,
             created_at=datetime.now(timezone.utc),
         )
         self._session.add(row)
         self._session.flush()
         return _to_domain(row)
+
+    def change_password(self, school_id: UUID, password_hash: str) -> None:
+        from sqlalchemy import update
+        stmt = (
+            update(SchoolORM)
+            .where(SchoolORM.id == school_id)
+            .values(password_hash=password_hash, must_change_password=False)
+        )
+        self._session.execute(stmt)
+        self._session.flush()
 
     def get_by_id(self, school_id: UUID) -> School | None:
         row = self._session.get(SchoolORM, school_id)
@@ -127,6 +139,7 @@ def _to_domain(row: SchoolORM) -> School:
         name=row.name,
         email=row.email,
         is_active=row.is_active,
+        must_change_password=row.must_change_password,
         created_at=row.created_at,
         address=row.address,
         city=row.city,
@@ -147,6 +160,7 @@ def _to_user(row: UserORM) -> User:
         created_at=row.created_at,
         role=row.role,
         is_active=row.is_active,
+        must_change_password=row.must_change_password,
         class_level=row.class_level,
         school_id=row.school_id,
         teacher_school_id=row.teacher_school_id,

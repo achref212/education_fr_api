@@ -217,6 +217,7 @@ class AuthService:
             postal_code=postal_code,
             phone=phone,
             director_name=director_name,
+            must_change_password=True,
         )
 
         if self._email_sender:
@@ -263,6 +264,7 @@ class AuthService:
             teacher_school_id=teacher_school_id,
             phone=phone,
             date_of_birth=date_of_birth,
+            must_change_password=True,
         )
 
         if self._email_sender:
@@ -274,6 +276,33 @@ class AuthService:
             )
 
         return prof, plain_password
+
+    def change_password(self, account: User | School, old_password: str, new_password: str) -> None:
+        """Change password for a logged-in User or School."""
+        if isinstance(account, User):
+            row = self._users.get_by_id(account.id)
+            if row is None:
+                raise AuthError("account_not_found", "Compte introuvable")
+            with_hash = self._users.get_by_email(row.email)
+            if with_hash is None or not verify_password(old_password, with_hash.password_hash):
+                raise AuthError("invalid_credentials", "Ancien mot de passe incorrect")
+            
+            self._users.change_password(account.id, hash_password(new_password))
+        
+        elif isinstance(account, School):
+            if self._schools is None:
+                raise AuthError("schools_unavailable", "Gestion des écoles non disponible")
+            row = self._schools.get_by_id(account.id)
+            if row is None:
+                raise AuthError("account_not_found", "Compte école introuvable")
+            with_hash = self._schools.get_by_email(row.email)
+            if with_hash is None or not verify_password(old_password, with_hash.password_hash):
+                raise AuthError("invalid_credentials", "Ancien mot de passe incorrect")
+            
+            self._schools.change_password(account.id, hash_password(new_password))
+        
+        else:
+            raise AuthError("invalid_account_type", "Type de compte invalide")
 
     def request_password_reset(self, email: str) -> str | None:
         """Initiate a password reset. Returns a state token if user exists."""

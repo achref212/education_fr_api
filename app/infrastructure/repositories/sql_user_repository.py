@@ -60,6 +60,15 @@ class SqlUserRepository(IUserRepository):
             return None
         return _to_domain_user(row)
 
+    def change_password(self, user_id: UUID, password_hash: str) -> None:
+        stmt = (
+            update(UserORM)
+            .where(UserORM.id == user_id)
+            .values(password_hash=password_hash, must_change_password=False)
+        )
+        self._session.execute(stmt)
+        self._session.flush()
+
     def update_password(self, user_id: UUID, password_hash: str) -> None:
         stmt = (
             update(UserORM)
@@ -87,6 +96,7 @@ def _to_domain_user(row: UserORM) -> User:
         created_at=row.created_at,
         role=row.role,
         is_active=row.is_active,
+        must_change_password=row.must_change_password,
         class_level=row.class_level,
         school_id=row.school_id,
         teacher_school_id=row.teacher_school_id,

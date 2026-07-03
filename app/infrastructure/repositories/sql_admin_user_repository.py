@@ -25,6 +25,7 @@ class SqlAdminUserRepository(IAdminUserRepository):
         class_level: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        must_change_password: bool = False,
     ) -> User:
         row = UserORM(
             email=email.lower().strip(),
@@ -34,6 +35,7 @@ class SqlAdminUserRepository(IAdminUserRepository):
             level=level,
             role=role,
             is_active=True,
+            must_change_password=must_change_password,
             created_at=datetime.now(timezone.utc),
             teacher_school_id=teacher_school_id,
             class_level=class_level,
@@ -138,6 +140,7 @@ def _to_user(row: UserORM) -> User:
         created_at=row.created_at,
         role=row.role,
         is_active=row.is_active,
+        must_change_password=row.must_change_password,
         class_level=row.class_level,
         school_id=row.school_id,
         teacher_school_id=row.teacher_school_id,

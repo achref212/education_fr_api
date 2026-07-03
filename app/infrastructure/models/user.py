@@ -29,6 +29,9 @@ class UserORM(Base):
     role: Mapped[str] = mapped_column(
         String(32), nullable=False, default="user", server_default="user"
     )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

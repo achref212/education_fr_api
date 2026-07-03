@@ -181,6 +181,60 @@ def get_current_school(
     return school
 
 
+def get_current_account(
+    db: Session = Depends(get_db),
+    cred: HTTPAuthorizationCredentials | None = Depends(security),
+) -> User | School:
+    if cred is None or not cred.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    sub = decode_token(cred.credentials)
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    
+    school_id = parse_school_id(sub)
+    if school_id is not None:
+        repo = SqlSchoolRepository(db)
+        school = repo.get_by_id(school_id)
+        if school is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="School not found",
+            )
+        if not school.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="School account disabled",
+            )
+        return school
+        
+    uid = parse_user_id(sub)
+    if uid is not None:
+        user_repo = SqlUserRepository(db)
+        user = user_repo.get_by_id(uid)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+            )
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account disabled",
+            )
+        return user
+        
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token subject",
+    )
+
+
 def require_admin(
     user: User = Depends(get_current_user),
 ) -> User:

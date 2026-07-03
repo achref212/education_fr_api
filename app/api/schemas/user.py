@@ -22,6 +22,7 @@ class UserOut(BaseModel):
     createdAt: datetime
     role: str = "user"
     isActive: bool = True
+    mustChangePassword: bool = False
     classLevel: str | None = None
     schoolId: UUID | None = None
     teacherSchoolId: UUID | None = None
@@ -39,6 +40,7 @@ class UserOut(BaseModel):
             createdAt=u.created_at,
             role=u.role,
             isActive=u.is_active,
+            mustChangePassword=u.must_change_password,
             classLevel=u.class_level,
             schoolId=u.school_id,
             teacherSchoolId=u.teacher_school_id,
@@ -89,6 +91,13 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     role: str
     user: UserOut | None = None
+
+
+class ChangePasswordIn(BaseModel):
+    oldPassword: str = Field(min_length=1)
+    newPassword: str = Field(min_length=6)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ForgotPasswordIn(BaseModel):

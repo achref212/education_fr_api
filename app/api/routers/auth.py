@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_auth_service, get_current_user, get_school_repo, get_user_repo
+from app.api.dependencies import get_auth_service, get_current_user, get_current_account, get_school_repo, get_user_repo
 from app.api.schemas.school import SchoolOut, SchoolTokenResponse
 from app.api.schemas.user import (
+    ChangePasswordIn,
     ForgotPasswordIn,
     ForgotPasswordOut,
     LoginIn,
@@ -20,7 +21,7 @@ from app.api.schemas.user import (
     VerifyResetCodeIn,
 )
 from app.application.auth_service import AuthError, AuthService
-from app.domain.entities import User
+from app.domain.entities import School, User
 from app.domain.ports import ISchoolRepository
 from app.infrastructure.db.session import get_db
 
@@ -159,6 +160,23 @@ def login(
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.from_domain(user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    body: ChangePasswordIn,
+    db: Session = Depends(get_db),
+    account: User | School = Depends(get_current_account),
+    auth: AuthService = Depends(get_auth_service),
+) -> None:
+    try:
+        auth.change_password(account, body.oldPassword, body.newPassword)
+        db.commit()
+    except AuthError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=e.message
+        ) from e
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordOut)
