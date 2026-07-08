@@ -12,10 +12,18 @@ from app.core.config import get_settings
 from app.infrastructure.db.base import Base
 from app.infrastructure.models import (  # noqa: F401
     contact_message as contact_message_model,
+    delf_test as delf_test_model,
+    game as game_model,
+    game_participant as game_participant_model,
+    game_session as game_session_model,
+    learning_path as learning_path_model,
+    learning_path_step as learning_path_step_model,
     lesson as lesson_model,
     multiplayer_room as multiplayer_room_model,
     quiz_question as quiz_question_model,
     story as story_model,
+    student_stats as student_stats_model,
+    student_step_progress as student_step_progress_model,
     user as user_model,
     user_progress as user_progress_model,
 )

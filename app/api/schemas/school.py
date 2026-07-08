@@ -18,6 +18,17 @@ class SchoolCreate(BaseModel):
     directorName: str | None = Field(default=None, alias="directorName")
 
 
+class SchoolProfileUpdateIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=512)
+    address: str | None = None
+    city: str | None = None
+    postalCode: str | None = Field(default=None, alias="postalCode")
+    phone: str | None = None
+    directorName: str | None = Field(default=None, alias="directorName")
+
+
 class SchoolUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -28,6 +39,20 @@ class SchoolUpdate(BaseModel):
     phone: str | None = None
     directorName: str | None = Field(default=None, alias="directorName")
     isActive: bool | None = Field(default=None, alias="isActive")
+
+
+class SchoolPublicOut(BaseModel):
+    """Minimal school info exposed during student registration."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    name: str
+    city: str | None = None
+
+    @classmethod
+    def from_domain(cls, s: School) -> "SchoolPublicOut":
+        return cls(id=s.id, name=s.name, city=s.city)
 
 
 class SchoolOut(BaseModel):

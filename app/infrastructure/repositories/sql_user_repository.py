@@ -85,6 +85,29 @@ class SqlUserRepository(IUserRepository):
         )
         self._session.execute(stmt)
 
+    def update_profile(
+        self,
+        user_id: UUID,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+    ) -> User | None:
+        row = self._session.get(UserORM, user_id)
+        if row is None:
+            return None
+        if first_name is not None:
+            row.first_name = first_name
+        if last_name is not None:
+            row.last_name = last_name
+        if phone is not None:
+            row.phone = phone
+        if date_of_birth is not None:
+            row.date_of_birth = date_of_birth
+        self._session.flush()
+        return _to_domain_user(row)
+
 
 def _to_domain_user(row: UserORM) -> User:
     return User(

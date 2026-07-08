@@ -1,9 +1,16 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.entities import (
     ContactMessage,
+    DelfTestConfig,
+    DelfTestSession,
+    Game,
+    GameParticipant,
+    GameSession,
+    LearningPath,
+    LearningPathStep,
     Lesson,
     MultiplayerRoom,
     ProgressData,
@@ -12,6 +19,8 @@ from app.domain.entities import (
     School,
     SchoolWithHash,
     Story,
+    StudentStats,
+    StudentStepProgress,
     User,
     UserProgressRow,
     UserWithHash,
@@ -42,6 +51,16 @@ class IUserRepository(Protocol):
     def update_password(self, user_id: UUID, password_hash: str) -> None: ...
 
     def activate_user(self, user_id: UUID) -> None: ...
+
+    def update_profile(
+        self,
+        user_id: UUID,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+    ) -> User | None: ...
 
 
 class IEmailSender(Protocol):
@@ -185,6 +204,8 @@ class IRecommendationRepository(Protocol):
 class ILessonRepository(Protocol):
     def list_all(self) -> list[Lesson]: ...
 
+    def list_by_professor(self, professor_id: UUID) -> list[Lesson]: ...
+
     def list_by_level(self, level: str) -> list[Lesson]: ...
 
     def list_by_category(self, category: str) -> list[Lesson]: ...
@@ -198,6 +219,7 @@ class ILessonRepository(Protocol):
         category: str,
         level: str,
         sort_order: int,
+        professor_id: UUID | None = None,
     ) -> Lesson: ...
 
     def update(
@@ -222,6 +244,10 @@ class IQuizRepository(Protocol):
     def list_all(self) -> list[QuizQuestion]: ...
 
     def list_by_level(self, level: str) -> list[QuizQuestion]: ...
+
+    def list_by_level_and_category(
+        self, level: str, category: str
+    ) -> list[QuizQuestion]: ...
 
     def get(self, question_id: UUID) -> QuizQuestion | None: ...
 
@@ -303,12 +329,220 @@ class IMultiplayerRepository(Protocol):
 
     def list_by_professor(self, professor_id: UUID) -> list[MultiplayerRoom]: ...
 
+    def get_by_id(self, room_id: UUID) -> MultiplayerRoom | None: ...
+
+    def get_by_code(self, room_code: str) -> MultiplayerRoom | None: ...
+
+    def list_for_student(self, student_id: UUID) -> list[MultiplayerRoom]: ...
+
     def create(
         self,
         room_code: str,
         label: str | None,
         professor_id: UUID,
         school_id: UUID | None,
+        data: dict | None = None,
+        class_level: str | None = None,
     ) -> MultiplayerRoom: ...
 
+    def update_data(self, room_id: UUID, data: dict[str, Any]) -> MultiplayerRoom | None: ...
+
+    def set_active_session(
+        self, room_id: UUID, session_id: UUID | None
+    ) -> MultiplayerRoom | None: ...
+
     def count(self) -> int: ...
+
+
+class ILearningPathRepository(Protocol):
+    def get_by_class_level(self, class_level: str) -> LearningPath | None: ...
+
+    def get(self, path_id: UUID) -> LearningPath | None: ...
+
+    def list_all(self) -> list[LearningPath]: ...
+
+    def list_steps(self, path_id: UUID) -> list[LearningPathStep]: ...
+
+    def get_step(self, step_id: UUID) -> LearningPathStep | None: ...
+
+    def create_path(
+        self,
+        class_level: str,
+        title: str,
+        delf_target_level: str,
+        description: str | None = None,
+    ) -> LearningPath: ...
+
+    def update_path(
+        self,
+        path_id: UUID,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        delf_target_level: str | None = None,
+        is_active: bool | None = None,
+    ) -> LearningPath | None: ...
+
+    def delete_path(self, path_id: UUID) -> bool: ...
+
+    def create_step(
+        self,
+        path_id: UUID,
+        step_order: int,
+        step_type: str,
+        title: str,
+        xp_reward: int,
+        quiz_category: str | None = None,
+        lesson_id: UUID | None = None,
+        story_id: UUID | None = None,
+        required_step_id: UUID | None = None,
+    ) -> LearningPathStep: ...
+
+    def update_step(
+        self,
+        step_id: UUID,
+        *,
+        step_order: int | None = None,
+        step_type: str | None = None,
+        title: str | None = None,
+        xp_reward: int | None = None,
+        quiz_category: str | None = None,
+        lesson_id: UUID | None = None,
+        story_id: UUID | None = None,
+        required_step_id: UUID | None = None,
+    ) -> LearningPathStep | None: ...
+
+    def delete_step(self, step_id: UUID) -> bool: ...
+
+
+class IStudentProgressRepository(Protocol):
+    def get_stats(self, user_id: UUID) -> StudentStats | None: ...
+
+    def upsert_stats(self, stats: StudentStats) -> StudentStats: ...
+
+    def get_step_progress(
+        self, user_id: UUID, step_id: UUID
+    ) -> StudentStepProgress | None: ...
+
+    def list_step_progress(self, user_id: UUID) -> list[StudentStepProgress]: ...
+
+    def upsert_step_progress(
+        self, progress: StudentStepProgress
+    ) -> StudentStepProgress: ...
+
+
+class IGameRepository(Protocol):
+    def list_games(self, active_only: bool = True) -> list[Game]: ...
+
+    def get_game_by_slug(self, slug: str) -> Game | None: ...
+
+    def get_game(self, game_id: UUID) -> Game | None: ...
+
+    def create_game(
+        self,
+        slug: str,
+        name: str,
+        min_players: int,
+        max_players: int,
+        default_question_count: int,
+        description: str | None = None,
+    ) -> Game: ...
+
+    def update_game(
+        self,
+        game_id: UUID,
+        *,
+        name: str | None = None,
+        min_players: int | None = None,
+        max_players: int | None = None,
+        default_question_count: int | None = None,
+        description: str | None = None,
+    ) -> Game | None: ...
+
+    def create_session(
+        self,
+        room_id: UUID,
+        game_id: UUID,
+        difficulty: str,
+        class_level: str,
+        question_ids: list[str],
+        total_rounds: int,
+        settings: dict[str, Any],
+    ) -> GameSession: ...
+
+    def get_session(self, session_id: UUID) -> GameSession | None: ...
+
+    def update_session(
+        self,
+        session_id: UUID,
+        *,
+        status: str | None = None,
+        current_round: int | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+    ) -> GameSession | None: ...
+
+    def list_participants(self, session_id: UUID) -> list[GameParticipant]: ...
+
+    def get_participant(
+        self, session_id: UUID, user_id: UUID
+    ) -> GameParticipant | None: ...
+
+    def add_participant(
+        self, session_id: UUID, user_id: UUID
+    ) -> GameParticipant: ...
+
+    def update_participant(
+        self,
+        participant_id: UUID,
+        *,
+        score: int | None = None,
+        rank: int | None = None,
+        answers: list[dict[str, Any]] | None = None,
+        finished_at: datetime | None = None,
+    ) -> GameParticipant | None: ...
+
+
+class IDelfTestRepository(Protocol):
+    def create_session(
+        self,
+        user_id: UUID,
+        class_level: str,
+        target_delf_level: str,
+        question_ids_by_category: dict[str, list[str]],
+    ) -> DelfTestSession: ...
+
+    def get_session(self, session_id: UUID) -> DelfTestSession | None: ...
+
+    def get_active_session(self, user_id: UUID) -> DelfTestSession | None: ...
+
+    def update_session(
+        self,
+        session_id: UUID,
+        *,
+        status: str | None = None,
+        answers: list[dict[str, Any]] | None = None,
+        category_scores: dict[str, int] | None = None,
+        overall_score: int | None = None,
+        achieved_delf_level: str | None = None,
+        finished_at: datetime | None = None,
+    ) -> DelfTestSession | None: ...
+
+    def list_sessions_for_user(self, user_id: UUID) -> list[DelfTestSession]: ...
+
+    def list_all_sessions(
+        self,
+        *,
+        user_id: UUID | None = None,
+        class_level: str | None = None,
+        status: str | None = None,
+    ) -> list[DelfTestSession]: ...
+
+    def get_config(self) -> DelfTestConfig: ...
+
+    def update_config(
+        self,
+        *,
+        questions_per_category: int | None = None,
+        level_thresholds: list[dict[str, int | str]] | None = None,
+    ) -> DelfTestConfig: ...

@@ -41,11 +41,16 @@ def get_lesson(
 @router.get("/quiz-questions", response_model=list[QuizQuestionOut])
 def list_quiz_questions(
     level: str | None = Query(default=None, description="Filter by level"),
+    category: str | None = Query(default=None, description="Filter by category"),
     _user: User = Depends(get_current_user),
     quizzes: IQuizRepository = Depends(get_quiz_repo),
 ) -> list[QuizQuestionOut]:
-    if level:
+    if level and category:
+        items = quizzes.list_by_level_and_category(level, category)
+    elif level:
         items = quizzes.list_by_level(level)
+    elif category:
+        items = [q for q in quizzes.list_all() if q.category == category]
     else:
         items = quizzes.list_all()
     return [QuizQuestionOut.from_domain(x) for x in items]

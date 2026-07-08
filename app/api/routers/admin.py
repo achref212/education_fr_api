@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -9,6 +10,9 @@ from app.api.dependencies import (
     get_admin_user_repo,
     get_auth_service,
     get_contact_repo,
+    get_delf_test_service,
+    get_game_repo,
+    get_learning_path_repo,
     get_lesson_repo,
     get_multiplayer_repo,
     get_quiz_repo,
@@ -28,6 +32,7 @@ from app.api.schemas.admin import (
     LessonOut,
     LessonUpdateIn,
     MultiplayerRoomOut,
+    SetupStatusOut,
     QuizQuestionCreateIn,
     QuizQuestionOut,
     QuizQuestionUpdateIn,
@@ -36,8 +41,25 @@ from app.api.schemas.admin import (
     StoryUpdateIn,
     UserProgressItemOut,
 )
+from app.api.schemas.multiplayer import GameCreateIn, GameOut, GameUpdateIn
+from app.api.schemas.delf_test import (
+    DelfLevelThresholdIn,
+    DelfTestConfigOut,
+    DelfTestConfigUpdateIn,
+    DelfTestResultsOut,
+    DelfTestSessionAdminOut,
+)
+from app.api.schemas.parcours import (
+    LearningPathCreateIn,
+    LearningPathOut,
+    LearningPathStepCreateIn,
+    LearningPathStepOut,
+    LearningPathStepUpdateIn,
+    LearningPathUpdateIn,
+)
 from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
 from app.application.auth_service import AuthError, AuthService
+from app.application.delf_test_service import DelfTestError, DelfTestService
 from app.core.email_validation import InvalidEmailError, validate_real_email
 from app.core.security import hash_password
 from app.domain.entities import User
@@ -45,6 +67,8 @@ from app.domain.ports import (
     IAdminProgressRepository,
     IAdminUserRepository,
     IContactRepository,
+    IGameRepository,
+    ILearningPathRepository,
     ILessonRepository,
     IMultiplayerRepository,
     IQuizRepository,
@@ -451,6 +475,324 @@ def list_multiplayer_rooms(
     return [MultiplayerRoomOut.from_domain(x) for x in rooms.list_all()]
 
 
+# --- Learning paths ---
+
+
+@router.get("/learning-paths", response_model=list[LearningPathOut])
+def list_learning_paths(
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> list[LearningPathOut]:
+    return [
+        LearningPathOut(
+            id=p.id,
+            classLevel=p.class_level,
+            title=p.title,
+            description=p.description,
+            delfTargetLevel=p.delf_target_level,
+            isActive=p.is_active,
+            createdAt=p.created_at,
+        )
+        for p in paths.list_all()
+    ]
+
+
+@router.post(
+    "/learning-paths",
+    response_model=LearningPathOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_learning_path(
+    body: LearningPathCreateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> LearningPathOut:
+    if any(p.class_level == body.classLevel for p in paths.list_all()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Un parcours existe déjà pour {body.classLevel}. Modifiez le parcours existant.",
+        )
+    try:
+        path = paths.create_path(
+            class_level=body.classLevel,
+            title=body.title,
+            delf_target_level=body.delfTargetLevel,
+            description=body.description,
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Un parcours existe déjà pour {body.classLevel}. Modifiez le parcours existant.",
+        ) from exc
+    return LearningPathOut(
+        id=path.id,
+        classLevel=path.class_level,
+        title=path.title,
+        description=path.description,
+        delfTargetLevel=path.delf_target_level,
+        isActive=path.is_active,
+        createdAt=path.created_at,
+    )
+
+
+@router.put("/learning-paths/{path_id}", response_model=LearningPathOut)
+def update_learning_path(
+    path_id: UUID,
+    body: LearningPathUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> LearningPathOut:
+    updated = paths.update_path(
+        path_id,
+        title=body.title,
+        description=body.description,
+        delf_target_level=body.delfTargetLevel,
+        is_active=body.isActive,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    db.commit()
+    return LearningPathOut(
+        id=updated.id,
+        classLevel=updated.class_level,
+        title=updated.title,
+        description=updated.description,
+        delfTargetLevel=updated.delf_target_level,
+        isActive=updated.is_active,
+        createdAt=updated.created_at,
+    )
+
+
+@router.delete("/learning-paths/{path_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_learning_path(
+    path_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> None:
+    if not paths.delete_path(path_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    db.commit()
+
+
+@router.get("/learning-paths/{path_id}/steps", response_model=list[LearningPathStepOut])
+def list_learning_path_steps(
+    path_id: UUID,
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> list[LearningPathStepOut]:
+    return [
+        LearningPathStepOut(
+            id=s.id,
+            pathId=s.path_id,
+            stepOrder=s.step_order,
+            stepType=s.step_type,
+            title=s.title,
+            xpReward=s.xp_reward,
+            quizCategory=s.quiz_category,
+            lessonId=s.lesson_id,
+            storyId=s.story_id,
+            requiredStepId=s.required_step_id,
+            createdAt=s.created_at,
+        )
+        for s in paths.list_steps(path_id)
+    ]
+
+
+@router.post(
+    "/learning-paths/{path_id}/steps",
+    response_model=LearningPathStepOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_learning_path_step(
+    path_id: UUID,
+    body: LearningPathStepCreateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> LearningPathStepOut:
+    step = paths.create_step(
+        path_id=path_id,
+        step_order=body.stepOrder,
+        step_type=body.stepType,
+        title=body.title,
+        xp_reward=body.xpReward,
+        quiz_category=body.quizCategory,
+        lesson_id=body.lessonId,
+        story_id=body.storyId,
+        required_step_id=body.requiredStepId,
+    )
+    db.commit()
+    return LearningPathStepOut(
+        id=step.id,
+        pathId=step.path_id,
+        stepOrder=step.step_order,
+        stepType=step.step_type,
+        title=step.title,
+        xpReward=step.xp_reward,
+        quizCategory=step.quiz_category,
+        lessonId=step.lesson_id,
+        storyId=step.story_id,
+        requiredStepId=step.required_step_id,
+        createdAt=step.created_at,
+    )
+
+
+@router.put(
+    "/learning-paths/{path_id}/steps/{step_id}",
+    response_model=LearningPathStepOut,
+)
+def update_learning_path_step(
+    path_id: UUID,
+    step_id: UUID,
+    body: LearningPathStepUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> LearningPathStepOut:
+    existing = paths.get_step(step_id)
+    if existing is None or existing.path_id != path_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    updated = paths.update_step(
+        step_id,
+        step_order=body.stepOrder,
+        step_type=body.stepType,
+        title=body.title,
+        xp_reward=body.xpReward,
+        quiz_category=body.quizCategory,
+        lesson_id=body.lessonId,
+        story_id=body.storyId,
+        required_step_id=body.requiredStepId,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    db.commit()
+    return LearningPathStepOut(
+        id=updated.id,
+        pathId=updated.path_id,
+        stepOrder=updated.step_order,
+        stepType=updated.step_type,
+        title=updated.title,
+        xpReward=updated.xp_reward,
+        quizCategory=updated.quiz_category,
+        lessonId=updated.lesson_id,
+        storyId=updated.story_id,
+        requiredStepId=updated.required_step_id,
+        createdAt=updated.created_at,
+    )
+
+
+@router.delete(
+    "/learning-paths/{path_id}/steps/{step_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_learning_path_step(
+    path_id: UUID,
+    step_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> None:
+    existing = paths.get_step(step_id)
+    if existing is None or existing.path_id != path_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if not paths.delete_step(step_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    db.commit()
+
+
+# --- Games catalog ---
+
+
+@router.get("/games", response_model=list[GameOut])
+def list_games(
+    _admin: User = Depends(require_admin),
+    games: IGameRepository = Depends(get_game_repo),
+) -> list[GameOut]:
+    return [
+        GameOut(
+            id=g.id,
+            slug=g.slug,
+            name=g.name,
+            description=g.description,
+            minPlayers=g.min_players,
+            maxPlayers=g.max_players,
+            defaultQuestionCount=g.default_question_count,
+        )
+        for g in games.list_games(active_only=False)
+    ]
+
+
+@router.post("/games", response_model=GameOut, status_code=status.HTTP_201_CREATED)
+def create_game(
+    body: GameCreateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    games: IGameRepository = Depends(get_game_repo),
+) -> GameOut:
+    game = games.create_game(
+        slug=body.slug,
+        name=body.name,
+        min_players=body.minPlayers,
+        max_players=body.maxPlayers,
+        default_question_count=body.defaultQuestionCount,
+        description=body.description,
+    )
+    db.commit()
+    return GameOut(
+        id=game.id,
+        slug=game.slug,
+        name=game.name,
+        description=game.description,
+        minPlayers=game.min_players,
+        maxPlayers=game.max_players,
+        defaultQuestionCount=game.default_question_count,
+    )
+
+
+@router.put("/games/{game_id}", response_model=GameOut)
+def update_game(
+    game_id: UUID,
+    body: GameUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    games: IGameRepository = Depends(get_game_repo),
+) -> GameOut:
+    if (
+        body.minPlayers is not None
+        and body.maxPlayers is not None
+        and body.minPlayers > body.maxPlayers
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="minPlayers cannot exceed maxPlayers",
+        )
+    updated = games.update_game(
+        game_id,
+        name=body.name,
+        min_players=body.minPlayers,
+        max_players=body.maxPlayers,
+        default_question_count=body.defaultQuestionCount,
+        description=body.description,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    db.commit()
+    return GameOut(
+        id=updated.id,
+        slug=updated.slug,
+        name=updated.name,
+        description=updated.description,
+        minPlayers=updated.min_players,
+        maxPlayers=updated.max_players,
+        defaultQuestionCount=updated.default_question_count,
+    )
+
+
 # --- Schools ---
 
 
@@ -569,7 +911,113 @@ def list_school_professors(
     return [AdminUserOut.from_domain(u) for u in schools.list_professors(school_id)]
 
 
+# --- DELF level tests ---
+
+
+@router.get("/delf-tests", response_model=list[DelfTestSessionAdminOut])
+def admin_list_delf_tests(
+    userId: UUID | None = None,
+    classLevel: str | None = None,
+    status: str | None = None,
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+    users: IUserRepository = Depends(get_user_repo),
+) -> list[DelfTestSessionAdminOut]:
+    sessions = service.list_all_sessions(
+        user_id=userId,
+        class_level=classLevel,
+        status=status,
+    )
+    result: list[DelfTestSessionAdminOut] = []
+    for session in sessions:
+        student = users.get_by_id(session.user_id)
+        result.append(
+            DelfTestSessionAdminOut(
+                sessionId=session.id,
+                userId=session.user_id,
+                classLevel=session.class_level,
+                targetDelfLevel=session.target_delf_level,
+                achievedDelfLevel=session.achieved_delf_level,
+                overallScore=session.overall_score,
+                categoryScores=session.category_scores,
+                status=session.status,
+                startedAt=session.started_at,
+                finishedAt=session.finished_at,
+                studentFirstName=student.first_name if student else None,
+                studentLastName=student.last_name if student else None,
+                studentEmail=student.email if student else None,
+            )
+        )
+    return result
+
+
+@router.get("/delf-tests/{session_id}")
+def admin_get_delf_test(
+    session_id: UUID,
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> dict:
+    try:
+        return service.get_admin_session(session_id)
+    except DelfTestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=exc.message
+        ) from exc
+
+
+@router.get("/delf-test-config", response_model=DelfTestConfigOut)
+def admin_get_delf_test_config(
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestConfigOut:
+    config = service.get_config()
+    return DelfTestConfigOut(
+        questionsPerCategory=config.questions_per_category,
+        levelThresholds=[
+            DelfLevelThresholdIn.model_validate(t) for t in config.level_thresholds
+        ],
+        updatedAt=config.updated_at,
+    )
+
+
+@router.put("/delf-test-config", response_model=DelfTestConfigOut)
+def admin_update_delf_test_config(
+    body: DelfTestConfigUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestConfigOut:
+    try:
+        thresholds = None
+        if body.levelThresholds is not None:
+            thresholds = [t.model_dump(by_alias=True) for t in body.levelThresholds]
+        config = service.update_config(
+            questions_per_category=body.questionsPerCategory,
+            level_thresholds=thresholds,
+        )
+        db.commit()
+        return DelfTestConfigOut(
+            questionsPerCategory=config.questions_per_category,
+            levelThresholds=[
+                DelfLevelThresholdIn.model_validate(t) for t in config.level_thresholds
+            ],
+            updatedAt=config.updated_at,
+        )
+    except DelfTestError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+
+
 # --- One-time admin bootstrap ---
+
+
+@router.get("/setup/status", response_model=SetupStatusOut)
+def admin_setup_status(
+    admin_users: IAdminUserRepository = Depends(get_admin_user_repo),
+) -> SetupStatusOut:
+    return SetupStatusOut(setupComplete=admin_users.count_admins() > 0)
 
 
 @router.post("/setup", response_model=AdminUserOut, status_code=status.HTTP_201_CREATED)
@@ -604,6 +1052,8 @@ def admin_setup(
         last_name=body.lastName,
         level=body.level,
         role="admin",
+        phone=body.phone,
+        date_of_birth=body.dateOfBirth,
     )
     db.commit()
     return AdminUserOut.from_domain(u)

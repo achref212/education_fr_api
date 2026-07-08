@@ -166,6 +166,118 @@ def decode_password_reset_state_token(token: str, current_password_hash: str) ->
 
 
 @dataclass
+class PortalResetStateData:
+    account_type: str
+    account_id: UUID
+    code_hash: str
+
+
+@dataclass
+class PortalResetTokenData:
+    account_type: str
+    account_id: UUID
+
+
+def _portal_sub(account_type: str, account_id: UUID) -> str:
+    return f"{account_type}:{account_id}"
+
+
+def _parse_portal_sub(sub: str) -> tuple[str, UUID] | None:
+    if ":" not in sub:
+        return None
+    account_type, raw_id = sub.split(":", 1)
+    if account_type not in ("user", "school"):
+        return None
+    try:
+        return account_type, UUID(raw_id)
+    except ValueError:
+        return None
+
+
+def create_portal_password_reset_state_token(
+    account_type: str,
+    account_id: UUID,
+    code_hash: str,
+    password_hash: str,
+    expires_minutes: int,
+) -> str:
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    payload: dict[str, Any] = {
+        "sub": _portal_sub(account_type, account_id),
+        "code_hash": code_hash,
+        "pwd_hash": password_hash,
+        "purpose": _PASSWORD_RESET_STATE_PURPOSE,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_portal_password_reset_state_token(
+    token: str, current_password_hash: str
+) -> PortalResetStateData | None:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+    if payload.get("purpose") != _PASSWORD_RESET_STATE_PURPOSE:
+        return None
+    if payload.get("pwd_hash") != current_password_hash:
+        return None
+    parsed = _parse_portal_sub(payload.get("sub", ""))
+    code_hash = payload.get("code_hash", "")
+    if parsed is None or not code_hash:
+        return None
+    account_type, account_id = parsed
+    return PortalResetStateData(
+        account_type=account_type,
+        account_id=account_id,
+        code_hash=code_hash,
+    )
+
+
+def create_portal_password_reset_token(
+    account_type: str,
+    account_id: UUID,
+    password_hash: str,
+    expires_minutes: int,
+) -> str:
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    payload: dict[str, Any] = {
+        "sub": _portal_sub(account_type, account_id),
+        "pwd_hash": password_hash,
+        "purpose": _PASSWORD_RESET_PURPOSE,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_portal_password_reset_token(
+    token: str, current_password_hash: str
+) -> PortalResetTokenData | None:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+    if payload.get("purpose") != _PASSWORD_RESET_PURPOSE:
+        return None
+    if payload.get("pwd_hash") != current_password_hash:
+        return None
+    parsed = _parse_portal_sub(payload.get("sub", ""))
+    if parsed is None:
+        return None
+    account_type, account_id = parsed
+    return PortalResetTokenData(account_type=account_type, account_id=account_id)
+
+
+@dataclass
 class PasswordResetTokenData:
     user_id: UUID
 

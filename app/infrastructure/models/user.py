@@ -70,3 +70,16 @@ class UserORM(Base):
         foreign_keys="[RecommendationORM.student_id]",
         back_populates="student",
     )
+    step_progress: Mapped[list[StudentStepProgressORM]] = relationship(  # type: ignore[name-defined]
+        "StudentStepProgressORM",
+        back_populates="user",
+    )
+    stats: Mapped[StudentStatsORM | None] = relationship(  # type: ignore[name-defined]
+        "StudentStatsORM",
+        back_populates="user",
+        uselist=False,
+    )
+    game_participations: Mapped[list[GameParticipantORM]] = relationship(  # type: ignore[name-defined]
+        "GameParticipantORM",
+        back_populates="user",
+    )

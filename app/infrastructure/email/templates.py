@@ -1,3 +1,53 @@
+import base64
+from urllib.parse import quote
+
+
+def _encode_copy_value(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _build_copy_page_url(dashboard_url: str, value: str) -> str:
+    base = dashboard_url.rstrip("/")
+    encoded = quote(_encode_copy_value(value), safe="")
+    return f"{base}/copy#v={encoded}"
+
+
+def _build_copy_button_html(dashboard_url: str, value: str, label: str = "Copier") -> str:
+    copy_url = _build_copy_page_url(dashboard_url, value)
+    return f"""<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;">
+                <tr>
+                  <td align="center">
+                    <a href="{copy_url}"
+                       style="display:inline-block;background:#ffffff;color:#1a73e8;
+                              text-decoration:none;font-size:13px;font-weight:700;
+                              padding:10px 22px;border-radius:8px;
+                              border:2px solid #bee3f8;">
+                      📋&nbsp;{label}
+                    </a>
+                  </td>
+                </tr>
+              </table>"""
+
+
+def _build_plain_copy_row(value: str, label: str) -> str:
+    return f"""<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+                <tr>
+                  <td style="background-color:#ffffff;border:1px dashed #cbd5e0;
+                             border-radius:8px;padding:12px 14px;">
+                    <p style="margin:0 0 6px;color:#718096;font-size:11px;
+                               font-weight:600;letter-spacing:1px;text-transform:uppercase;">
+                      {label}
+                    </p>
+                    <p style="margin:0;color:#1a365d;font-size:15px;font-weight:700;
+                               font-family:'Courier New',Courier,monospace;
+                               -webkit-user-select:all;user-select:all;-moz-user-select:all;">
+                      {value}
+                    </p>
+                  </td>
+                </tr>
+              </table>"""
+
+
 def build_school_welcome_email_html(
     school_name: str,
     email: str,
@@ -63,6 +113,7 @@ def build_school_welcome_email_html(
                                      font-family:'Courier New',Courier,monospace;">
                             {email}
                           </p>
+                          {_build_copy_button_html(dashboard_url, email, "Copier l'e-mail")}
                         </td>
                       </tr>
                       <tr>
@@ -75,6 +126,8 @@ def build_school_welcome_email_html(
                                      font-family:'Courier New',Courier,monospace;">
                             {plain_password}
                           </p>
+                          {_build_copy_button_html(dashboard_url, plain_password, "Copier le mot de passe")}
+                          {_build_plain_copy_row(plain_password, "Copie rapide — mot de passe")}
                         </td>
                       </tr>
                     </table>
@@ -190,6 +243,7 @@ def build_prof_welcome_email_html(
                                      font-family:'Courier New',Courier,monospace;">
                             {email}
                           </p>
+                          {_build_copy_button_html(dashboard_url, email, "Copier l'e-mail")}
                         </td>
                       </tr>
                       <tr>
@@ -202,6 +256,8 @@ def build_prof_welcome_email_html(
                                      font-family:'Courier New',Courier,monospace;">
                             {plain_password}
                           </p>
+                          {_build_copy_button_html(dashboard_url, plain_password, "Copier le mot de passe")}
+                          {_build_plain_copy_row(plain_password, "Copie rapide — mot de passe")}
                         </td>
                       </tr>
                     </table>
@@ -258,6 +314,7 @@ def build_activation_code_email_html(
     first_name: str,
     code: str,
     expires_minutes: int,
+    dashboard_url: str,
 ) -> str:
     """Build a beautiful, inline-CSS HTML email for account activation."""
     spaced_code = "&nbsp;".join(list(code))
@@ -332,6 +389,8 @@ def build_activation_code_email_html(
                                letter-spacing:12px;font-family:'Courier New',Courier,monospace;">
                       {spaced_code}
                     </p>
+                    {_build_copy_button_html(dashboard_url, code, "Copier le code")}
+                    {_build_plain_copy_row(code, "Copie rapide — code d'activation")}
                   </td>
                 </tr>
               </table>
@@ -385,6 +444,7 @@ def build_reset_code_email_html(
     first_name: str,
     code: str,
     expires_minutes: int,
+    dashboard_url: str,
 ) -> str:
     """Build a beautiful, inline-CSS HTML email for password reset.
 
@@ -462,6 +522,8 @@ def build_reset_code_email_html(
                                letter-spacing:12px;font-family:'Courier New',Courier,monospace;">
                       {spaced_code}
                     </p>
+                    {_build_copy_button_html(dashboard_url, code, "Copier le code")}
+                    {_build_plain_copy_row(code, "Copie rapide — code de vérification")}
                   </td>
                 </tr>
               </table>

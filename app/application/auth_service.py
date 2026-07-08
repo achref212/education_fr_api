@@ -7,15 +7,19 @@ from app.core.security import (
     create_access_token,
     create_password_reset_state_token,
     create_password_reset_token,
+    create_portal_password_reset_state_token,
+    create_portal_password_reset_token,
     create_registration_state_token,
     create_school_token,
     decode_password_reset_state_token,
     decode_password_reset_token,
+    decode_portal_password_reset_state_token,
+    decode_portal_password_reset_token,
     decode_registration_state_token,
     hash_password,
     verify_password,
 )
-from app.domain.entities import School, User
+from app.domain.entities import School, SchoolWithHash, User, UserWithHash
 from app.domain.ports import IAdminUserRepository, IEmailSender, ISchoolRepository, IUserRepository
 
 _RESET_CODE_DIGITS = 6
@@ -167,6 +171,27 @@ class AuthService:
         token = create_access_token(str(row.user.id))
         return row.user, token
 
+    def authenticate_portal(
+        self, email: str, password: str
+    ) -> tuple[str, User | School, str]:
+        """Authenticate admin portal accounts by matching password against user or school records."""
+        user_row = self._users.get_by_email(email)
+        if user_row is not None and verify_password(password, user_row.password_hash):
+            if not user_row.user.is_active:
+                raise AuthError("account_inactive", "Compte désactivé")
+            token = create_access_token(str(user_row.user.id))
+            return "user", user_row.user, token
+
+        if self._schools is not None:
+            school_row = self._schools.get_by_email(email)
+            if school_row is not None and verify_password(password, school_row.password_hash):
+                if not school_row.school.is_active:
+                    raise AuthError("account_inactive", "Compte école désactivé")
+                token = create_school_token(school_row.school.id)
+                return "school", school_row.school, token
+
+        raise AuthError("invalid_credentials", "E-mail ou mot de passe incorrect")
+
     def login_school(self, email: str, password: str) -> tuple[School, str]:
         """Authenticate a school account. Returns (school, access_token)."""
         if self._schools is None:
@@ -203,6 +228,8 @@ class AuthService:
 
         if self._schools.get_by_email(email):
             raise AuthError("email_taken", "Cet e-mail est déjà utilisé par une école")
+        if self._users.get_by_email(email):
+            raise AuthError("email_taken", "Cet e-mail est déjà utilisé")
 
         plain_password = _generate_password()
         ph = hash_password(plain_password)
@@ -250,6 +277,11 @@ class AuthService:
 
         if self._users.get_by_email(email):
             raise AuthError("email_taken", "Cet e-mail est déjà utilisé")
+        if self._schools is not None and self._schools.get_by_email(email):
+            raise AuthError(
+                "email_taken",
+                "Cet e-mail est déjà utilisé par un établissement",
+            )
 
         plain_password = _generate_password()
         ph = hash_password(plain_password)
@@ -369,3 +401,167 @@ class AuthService:
 
         new_hash = hash_password(new_password)
         self._users.update_password(token_data.user_id, new_hash)
+
+    def update_user_profile(
+        self,
+        user: User,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        phone: str | None = None,
+        date_of_birth: date | None = None,
+    ) -> User:
+        updated = self._users.update_profile(
+            user.id,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            date_of_birth=date_of_birth,
+        )
+        if updated is None:
+            raise AuthError("account_not_found", "Compte introuvable")
+        return updated
+
+    def update_school_profile(
+        self,
+        school: School,
+        *,
+        name: str | None = None,
+        address: str | None = None,
+        city: str | None = None,
+        postal_code: str | None = None,
+        phone: str | None = None,
+        director_name: str | None = None,
+    ) -> School:
+        if self._schools is None:
+            raise AuthError("schools_unavailable", "Gestion des écoles non disponible")
+        updated = self._schools.update(
+            school.id,
+            name=name,
+            address=address,
+            city=city,
+            postal_code=postal_code,
+            phone=phone,
+            director_name=director_name,
+        )
+        if updated is None:
+            raise AuthError("account_not_found", "Compte école introuvable")
+        return updated
+
+    def _resolve_portal_account(
+        self, email: str
+    ) -> tuple[str, UserWithHash | SchoolWithHash] | None:
+        user_row = self._users.get_by_email(email)
+        school_row = self._schools.get_by_email(email) if self._schools else None
+        if user_row is not None and user_row.user.role in ("admin", "prof"):
+            return ("user", user_row)
+        if school_row is not None:
+            return ("school", school_row)
+        if user_row is not None:
+            return ("user", user_row)
+        return None
+
+    def request_portal_password_reset(self, email: str) -> str | None:
+        if self._email_sender is None:
+            return None
+        resolved = self._resolve_portal_account(email)
+        if resolved is None:
+            return None
+        account_type, row = resolved
+        raw_code = f"{secrets.randbelow(10 ** _RESET_CODE_DIGITS):0{_RESET_CODE_DIGITS}d}"
+        code_hash = hash_password(raw_code)
+        if account_type == "user":
+            user_row = row
+            assert isinstance(user_row, UserWithHash)
+            state_token = create_portal_password_reset_state_token(
+                account_type="user",
+                account_id=user_row.user.id,
+                code_hash=code_hash,
+                password_hash=user_row.password_hash,
+                expires_minutes=self._reset_expire_minutes,
+            )
+            to_name = user_row.user.first_name
+            to_email = user_row.user.email
+        else:
+            school_row = row
+            assert isinstance(school_row, SchoolWithHash)
+            state_token = create_portal_password_reset_state_token(
+                account_type="school",
+                account_id=school_row.school.id,
+                code_hash=code_hash,
+                password_hash=school_row.password_hash,
+                expires_minutes=self._reset_expire_minutes,
+            )
+            to_name = school_row.school.name
+            to_email = school_row.school.email
+        self._email_sender.send_password_reset_code(
+            to_email=to_email,
+            to_name=to_name,
+            code=raw_code,
+            expires_minutes=self._reset_expire_minutes,
+        )
+        return state_token
+
+    def verify_portal_reset_code(self, email: str, code: str, state_token: str) -> str:
+        resolved = self._resolve_portal_account(email)
+        if resolved is None:
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+        account_type, row = resolved
+        if account_type == "user":
+            user_row = row
+            assert isinstance(user_row, UserWithHash)
+            state_data = decode_portal_password_reset_state_token(
+                state_token, user_row.password_hash
+            )
+            if state_data is None or state_data.account_id != user_row.user.id:
+                raise AuthError("invalid_code", "Code invalide ou expiré")
+            if not verify_password(code, state_data.code_hash):
+                raise AuthError("invalid_code", "Code invalide ou expiré")
+            return create_portal_password_reset_token(
+                account_type="user",
+                account_id=user_row.user.id,
+                password_hash=user_row.password_hash,
+                expires_minutes=self._reset_expire_minutes,
+            )
+        school_row = row
+        assert isinstance(school_row, SchoolWithHash)
+        state_data = decode_portal_password_reset_state_token(
+            state_token, school_row.password_hash
+        )
+        if state_data is None or state_data.account_id != school_row.school.id:
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+        if not verify_password(code, state_data.code_hash):
+            raise AuthError("invalid_code", "Code invalide ou expiré")
+        return create_portal_password_reset_token(
+            account_type="school",
+            account_id=school_row.school.id,
+            password_hash=school_row.password_hash,
+            expires_minutes=self._reset_expire_minutes,
+        )
+
+    def reset_portal_password(self, email: str, reset_token: str, new_password: str) -> None:
+        resolved = self._resolve_portal_account(email)
+        if resolved is None:
+            raise AuthError("invalid_token", "Lien de réinitialisation invalide ou expiré")
+        account_type, row = resolved
+        new_hash = hash_password(new_password)
+        if account_type == "user":
+            user_row = row
+            assert isinstance(user_row, UserWithHash)
+            token_data = decode_portal_password_reset_token(
+                reset_token, user_row.password_hash
+            )
+            if token_data is None or token_data.account_id != user_row.user.id:
+                raise AuthError("invalid_token", "Lien de réinitialisation invalide ou expiré")
+            self._users.update_password(user_row.user.id, new_hash)
+            return
+        school_row = row
+        assert isinstance(school_row, SchoolWithHash)
+        token_data = decode_portal_password_reset_token(
+            reset_token, school_row.password_hash
+        )
+        if token_data is None or token_data.account_id != school_row.school.id:
+            raise AuthError("invalid_token", "Lien de réinitialisation invalide ou expiré")
+        if self._schools is None:
+            raise AuthError("schools_unavailable", "Gestion des écoles non disponible")
+        self._schools.change_password(school_row.school.id, new_hash)

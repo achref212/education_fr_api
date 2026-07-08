@@ -23,6 +23,15 @@ class SqlQuizRepository(IQuizRepository):
         stmt = select(QuizQuestionORM).where(QuizQuestionORM.level == level)
         return [_to_domain(r) for r in self._session.scalars(stmt).all()]
 
+    def list_by_level_and_category(
+        self, level: str, category: str
+    ) -> list[QuizQuestion]:
+        stmt = select(QuizQuestionORM).where(
+            QuizQuestionORM.level == level,
+            QuizQuestionORM.category == category,
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
     def get(self, question_id: UUID) -> QuizQuestion | None:
         row = self._session.get(QuizQuestionORM, question_id)
         return _to_domain(row) if row else None

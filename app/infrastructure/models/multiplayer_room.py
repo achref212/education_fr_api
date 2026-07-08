@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
 
@@ -41,4 +41,16 @@ class MultiplayerRoomORM(Base):
         ForeignKey("schools.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+    class_level: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    active_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("game_sessions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+
+    sessions: Mapped[list[GameSessionORM]] = relationship(  # type: ignore[name-defined]
+        "GameSessionORM",
+        back_populates="room",
+        foreign_keys="GameSessionORM.room_id",
     )

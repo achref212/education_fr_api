@@ -228,6 +228,73 @@ def test_login_wrong_password() -> None:
         auth.login("alice@gmail.com", "wrong")
 
 
+def test_authenticate_portal_prefers_matching_user_password() -> None:
+    from dataclasses import dataclass, field
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from app.domain.entities import School, SchoolWithHash
+
+    @dataclass
+    class FakeSchoolRepo:
+        schools: list[SchoolWithHash] = field(default_factory=list)
+
+        def get_by_email(self, email: str) -> SchoolWithHash | None:
+            for entry in self.schools:
+                if entry.school.email == email:
+                    return entry
+            return None
+
+    users = FakeUserRepo()
+    schools = FakeSchoolRepo()
+    shared_email = "shared@gmail.com"
+    users.users.append(
+        UserWithHash(
+            user=User(
+                id=uuid4(),
+                email=shared_email,
+                first_name="Prof",
+                last_name="Test",
+                level="prof",
+                created_at=datetime.now(timezone.utc),
+                role="prof",
+                is_active=True,
+                must_change_password=True,
+            ),
+            password_hash=hash_password("prof-pass"),
+        )
+    )
+    school = School(
+        id=uuid4(),
+        name="Ecole",
+        email=shared_email,
+        created_at=datetime.now(timezone.utc),
+        is_active=True,
+        must_change_password=False,
+        created_by_admin_id=uuid4(),
+        address=None,
+        city=None,
+        postal_code=None,
+        phone=None,
+        director_name=None,
+    )
+    schools.schools.append(
+        SchoolWithHash(school=school, password_hash=hash_password("school-pass"))
+    )
+    auth = AuthService(users=users, schools=schools)
+
+    account_type, account, token = auth.authenticate_portal(shared_email, "prof-pass")
+    assert account_type == "user"
+    assert isinstance(account, User)
+    assert account.role == "prof"
+    assert token
+
+    account_type, account, token = auth.authenticate_portal(shared_email, "school-pass")
+    assert account_type == "school"
+    assert isinstance(account, School)
+    assert token
+
+
 # ---------------------------------------------------------------------------
 # Email validation tests (offline-safe — syntax + disposable only)
 # ---------------------------------------------------------------------------

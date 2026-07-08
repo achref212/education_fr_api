@@ -8,7 +8,16 @@ from app.domain.entities import User
 
 _RESET_CODE_PATTERN = re.compile(r"^\d{6}$")
 
-CLASS_LEVELS = ["2e", "3e", "4e", "5e", "6e", "7e", "8e", "9e"]
+CLASS_LEVELS = [
+    "2ème année",
+    "3ème année",
+    "4ème année",
+    "5ème année",
+    "6ème année",
+    "7ème année",
+    "8ème année",
+    "9ème année",
+]
 
 
 class UserOut(BaseModel):
@@ -96,6 +105,15 @@ class TokenResponse(BaseModel):
 class ChangePasswordIn(BaseModel):
     oldPassword: str = Field(min_length=1)
     newPassword: str = Field(min_length=6)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ProfileUpdateIn(BaseModel):
+    firstName: str | None = Field(default=None, min_length=1, max_length=255)
+    lastName: str | None = Field(default=None, min_length=1, max_length=255)
+    phone: str | None = None
+    dateOfBirth: date | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 

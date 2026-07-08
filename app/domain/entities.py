@@ -96,6 +96,7 @@ class Lesson:
     level: str
     sort_order: int
     created_at: datetime
+    professor_id: UUID | None = None
 
 
 @dataclass
@@ -140,9 +141,142 @@ class MultiplayerRoom:
     updated_at: datetime
     professor_id: UUID | None = None
     school_id: UUID | None = None
+    class_level: str | None = None
+    active_session_id: UUID | None = None
+
+
+@dataclass
+class LearningPath:
+    id: UUID
+    class_level: str
+    title: str
+    delf_target_level: str
+    created_at: datetime
+    description: str | None = None
+    is_active: bool = True
+
+
+@dataclass
+class LearningPathStep:
+    id: UUID
+    path_id: UUID
+    step_order: int
+    step_type: str
+    title: str
+    xp_reward: int
+    created_at: datetime
+    quiz_category: str | None = None
+    lesson_id: UUID | None = None
+    story_id: UUID | None = None
+    required_step_id: UUID | None = None
+
+
+@dataclass
+class StudentStepProgress:
+    id: UUID
+    user_id: UUID
+    step_id: UUID
+    status: str
+    attempts: int
+    updated_at: datetime
+    score: int | None = None
+    completed_at: datetime | None = None
+
+
+@dataclass
+class StudentStats:
+    user_id: UUID
+    total_xp: int
+    current_streak: int
+    longest_streak: int
+    preferred_difficulty: str
+    updated_at: datetime
+    last_activity_date: date | None = None
+
+
+@dataclass
+class Game:
+    id: UUID
+    slug: str
+    name: str
+    min_players: int
+    max_players: int
+    default_question_count: int
+    created_at: datetime
+    description: str | None = None
+    is_active: bool = True
+
+
+@dataclass
+class GameSession:
+    id: UUID
+    room_id: UUID
+    game_id: UUID
+    difficulty: str
+    class_level: str
+    status: str
+    question_ids: list[str]
+    current_round: int
+    total_rounds: int
+    settings: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+
+@dataclass
+class GameParticipant:
+    id: UUID
+    session_id: UUID
+    user_id: UUID
+    score: int
+    answers: list[dict[str, Any]]
+    joined_at: datetime
+    rank: int | None = None
+    finished_at: datetime | None = None
+
+
+@dataclass
+class ParcoursSummary:
+    class_level: str
+    delf_target_level: str
+    completion_percent: float
+    total_steps: int
+    completed_steps: int
+    total_xp: int
+    current_streak: int
+    preferred_difficulty: str
+    next_step_id: UUID | None = None
+    next_step_title: str | None = None
 
 
 @dataclass
 class UserProgressRow:
     user: User
     progress: ProgressData
+
+
+@dataclass
+class DelfTestSession:
+    id: UUID
+    user_id: UUID
+    class_level: str
+    target_delf_level: str
+    status: str
+    question_ids_by_category: dict[str, list[str]]
+    answers: list[dict[str, Any]]
+    category_scores: dict[str, int]
+    created_at: datetime
+    overall_score: int | None = None
+    achieved_delf_level: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+@dataclass
+class DelfTestConfig:
+    id: UUID
+    questions_per_category: int
+    level_thresholds: list[dict[str, int | str]]
+    updated_at: datetime

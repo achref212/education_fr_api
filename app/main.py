@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routers import admin, auth, health, progress
 from app.api.routers.content import router as content_router
+from app.api.routers.delf_tests import router as delf_tests_router
+from app.api.routers.multiplayer import router as multiplayer_router
+from app.api.routers.parcours import router as parcours_router
 from app.api.routers.prof import router as prof_router
 from app.api.routers.school import router as school_router
 from app.core.config import get_settings
@@ -29,5 +32,8 @@ app.include_router(auth.router)
 app.include_router(progress.router)
 app.include_router(admin.router)
 app.include_router(content_router)
+app.include_router(delf_tests_router)
+app.include_router(parcours_router)
+app.include_router(multiplayer_router)
 app.include_router(school_router)
 app.include_router(prof_router)

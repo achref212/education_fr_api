@@ -10,6 +10,7 @@ import certifi
 
 from app.domain.ports import IEmailSender
 from app.infrastructure.email.templates import (
+    _build_copy_page_url,
     build_activation_code_email_html,
     build_prof_welcome_email_html,
     build_reset_code_email_html,
@@ -30,6 +31,7 @@ class SmtpEmailSender(IEmailSender):
         password: str,
         from_email: str,
         from_name: str,
+        dashboard_url: str = "http://localhost:4200",
         use_ssl: bool = False,
         use_tls: bool = True,
     ) -> None:
@@ -39,6 +41,7 @@ class SmtpEmailSender(IEmailSender):
         self._password = password
         self._from_email = from_email
         self._from_name = from_name
+        self._dashboard_url = dashboard_url
         self._use_ssl = use_ssl
         self._use_tls = use_tls
 
@@ -49,7 +52,9 @@ class SmtpEmailSender(IEmailSender):
         code: str,
         expires_minutes: int,
     ) -> None:
-        html_body = build_reset_code_email_html(to_name, code, expires_minutes)
+        html_body = build_reset_code_email_html(
+            to_name, code, expires_minutes, self._dashboard_url
+        )
 
         msg = MIMEMultipart("related")
         msg["Subject"] = "Votre code de réinitialisation — DELFy"
@@ -59,9 +64,11 @@ class SmtpEmailSender(IEmailSender):
         alternative = MIMEMultipart("alternative")
         msg.attach(alternative)
 
+        copy_url = _build_copy_page_url(self._dashboard_url, code)
         plain_text = (
             f"Bonjour {to_name},\n\n"
             f"Votre code de réinitialisation est : {code}\n\n"
+            f"Copier le code : {copy_url}\n\n"
             f"Ce code expire dans {expires_minutes} minutes.\n\n"
             "Si vous n'avez pas demandé cette réinitialisation, ignorez cet e-mail.\n\n"
             "— DELFy"
@@ -88,7 +95,9 @@ class SmtpEmailSender(IEmailSender):
         code: str,
         expires_minutes: int,
     ) -> None:
-        html_body = build_activation_code_email_html(to_name, code, expires_minutes)
+        html_body = build_activation_code_email_html(
+            to_name, code, expires_minutes, self._dashboard_url
+        )
 
         msg = MIMEMultipart("related")
         msg["Subject"] = "Activation de votre compte — DELFy"
@@ -98,9 +107,11 @@ class SmtpEmailSender(IEmailSender):
         alternative = MIMEMultipart("alternative")
         msg.attach(alternative)
 
+        copy_url = _build_copy_page_url(self._dashboard_url, code)
         plain_text = (
             f"Bonjour {to_name},\n\n"
             f"Votre code d'activation est : {code}\n\n"
+            f"Copier le code : {copy_url}\n\n"
             f"Ce code expire dans {expires_minutes} minutes.\n\n"
             "— DELFy"
         )
@@ -138,11 +149,13 @@ class SmtpEmailSender(IEmailSender):
         msg["To"] = to_email
         alternative = MIMEMultipart("alternative")
         msg.attach(alternative)
+        pwd_copy_url = _build_copy_page_url(dashboard_url, plain_password)
         plain_text = (
             f"Bienvenue sur DELFy !\n\n"
             f"Établissement : {school_name}\n"
             f"E-mail : {to_email}\n"
             f"Mot de passe : {plain_password}\n\n"
+            f"Copier le mot de passe : {pwd_copy_url}\n\n"
             f"Tableau de bord : {dashboard_url}\n\n"
             "Veuillez changer votre mot de passe dès la première connexion.\n\n"
             "— DELFy"
@@ -177,11 +190,13 @@ class SmtpEmailSender(IEmailSender):
         msg["To"] = f"{prof_name} <{to_email}>"
         alternative = MIMEMultipart("alternative")
         msg.attach(alternative)
+        pwd_copy_url = _build_copy_page_url(dashboard_url, plain_password)
         plain_text = (
             f"Bonjour {prof_name},\n\n"
             f"Un compte professeur DELFy a été créé pour vous.\n"
             f"E-mail : {to_email}\n"
             f"Mot de passe : {plain_password}\n\n"
+            f"Copier le mot de passe : {pwd_copy_url}\n\n"
             f"Espace professeur : {dashboard_url}\n\n"
             "Veuillez changer votre mot de passe dès la première connexion.\n\n"
             "— DELFy"

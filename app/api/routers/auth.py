@@ -1,14 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_auth_service, get_current_user, get_current_account, get_school_repo, get_user_repo
-from app.api.schemas.school import SchoolOut, SchoolTokenResponse
+from app.api.dependencies import (
+    get_auth_service,
+    get_current_account,
+    get_current_user,
+    get_school_repo,
+    get_user_repo,
+)
+from app.api.schemas.school import SchoolOut, SchoolPublicOut, SchoolTokenResponse
 from app.api.schemas.user import (
     ChangePasswordIn,
     ForgotPasswordIn,
     ForgotPasswordOut,
     LoginIn,
     MessageResponse,
+    ProfileUpdateIn,
     RegisterIn,
     RegisterOut,
     ResendActivationIn,
@@ -22,10 +29,22 @@ from app.api.schemas.user import (
 )
 from app.application.auth_service import AuthError, AuthService
 from app.domain.entities import School, User
-from app.domain.ports import ISchoolRepository
+from app.domain.ports import ISchoolRepository, IUserRepository
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/schools", response_model=list[SchoolPublicOut])
+def list_public_schools(
+    schools: ISchoolRepository = Depends(get_school_repo),
+) -> list[SchoolPublicOut]:
+    """Active schools available for student self-registration."""
+    return [
+        SchoolPublicOut.from_domain(s)
+        for s in schools.list_all()
+        if s.is_active
+    ]
 
 
 @router.post("/register", response_model=RegisterOut, status_code=status.HTTP_201_CREATED)
@@ -104,32 +123,42 @@ def resend_activation(
     )
 
 
+def _raise_auth_http_error(exc: AuthError) -> None:
+    if exc.code == "account_inactive":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=exc.message
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail=exc.message
+    ) from exc
+
+
 @router.post("/login")
 def login(
     body: LoginIn,
     db: Session = Depends(get_db),
     auth: AuthService = Depends(get_auth_service),
-    school_repo: ISchoolRepository = Depends(get_school_repo),
 ) -> TokenResponse | SchoolTokenResponse:
     """
     Unified login endpoint.
     - Returns TokenResponse for users (student / prof / admin)
     - Returns SchoolTokenResponse for school accounts
+
+    Password is matched against user and school records so professor and
+    school accounts can coexist on the same email when needed.
     """
-    school_row = school_repo.get_by_email(body.email)
-    if school_row is not None:
-        try:
-            school, token = auth.login_school(body.email, body.password)
-            db.commit()
-        except AuthError as e:
-            db.rollback()
-            if e.code == "account_inactive":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail=e.message
-                ) from e
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message
-            ) from e
+    try:
+        account_type, account, token = auth.authenticate_portal(
+            body.email, body.password
+        )
+        db.commit()
+    except AuthError as e:
+        db.rollback()
+        _raise_auth_http_error(e)
+
+    if account_type == "school":
+        school = account
+        assert isinstance(school, School)
         return SchoolTokenResponse(
             access_token=token,
             token_type="bearer",
@@ -137,18 +166,8 @@ def login(
             school=SchoolOut.from_domain(school),
         )
 
-    try:
-        user, token = auth.login(body.email, body.password)
-        db.commit()
-    except AuthError as e:
-        db.rollback()
-        if e.code == "account_inactive":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=e.message
-            ) from e
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message
-        ) from e
+    user = account
+    assert isinstance(user, User)
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -160,6 +179,35 @@ def login(
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.from_domain(user)
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(
+    body: ProfileUpdateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    auth: AuthService = Depends(get_auth_service),
+) -> UserOut:
+    if user.role not in ("admin", "prof", "user"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Profil non modifiable pour ce type de compte",
+        )
+    try:
+        updated = auth.update_user_profile(
+            user,
+            first_name=body.firstName,
+            last_name=body.lastName,
+            phone=body.phone,
+            date_of_birth=body.dateOfBirth,
+        )
+        db.commit()
+    except AuthError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+    return UserOut.from_domain(updated)
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -185,7 +233,7 @@ def forgot_password(
     db: Session = Depends(get_db),
     auth: AuthService = Depends(get_auth_service),
 ) -> ForgotPasswordOut:
-    state_token = auth.request_password_reset(body.email)
+    state_token = auth.request_portal_password_reset(body.email)
     db.commit()
     return ForgotPasswordOut(
         message=(
@@ -203,7 +251,7 @@ def verify_reset_code(
     auth: AuthService = Depends(get_auth_service),
 ) -> ResetTokenResponse:
     try:
-        reset_token = auth.verify_reset_code(
+        reset_token = auth.verify_portal_reset_code(
             body.email, body.code, body.reset_state_token
         )
         db.commit()
@@ -222,7 +270,7 @@ def reset_password(
     auth: AuthService = Depends(get_auth_service),
 ) -> MessageResponse:
     try:
-        auth.reset_password(body.email, body.reset_token, body.new_password)
+        auth.reset_portal_password(body.email, body.reset_token, body.new_password)
         db.commit()
     except AuthError as e:
         db.rollback()

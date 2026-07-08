@@ -21,6 +21,14 @@ class SqlLessonRepository(ILessonRepository):
         rows = self._session.scalars(stmt).all()
         return [_to_domain(r) for r in rows]
 
+    def list_by_professor(self, professor_id: UUID) -> list[Lesson]:
+        stmt = (
+            select(LessonORM)
+            .where(LessonORM.professor_id == professor_id)
+            .order_by(LessonORM.sort_order, LessonORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
     def list_by_level(self, level: str) -> list[Lesson]:
         stmt = (
             select(LessonORM)
@@ -48,6 +56,7 @@ class SqlLessonRepository(ILessonRepository):
         category: str,
         level: str,
         sort_order: int,
+        professor_id: UUID | None = None,
     ) -> Lesson:
         now = datetime.now(timezone.utc)
         row = LessonORM(
@@ -57,6 +66,7 @@ class SqlLessonRepository(ILessonRepository):
             category=category,
             level=level,
             sort_order=sort_order,
+            professor_id=professor_id,
             created_at=now,
         )
         self._session.add(row)
@@ -119,4 +129,5 @@ def _to_domain(row: LessonORM) -> Lesson:
         level=row.level,
         sort_order=row.sort_order,
         created_at=row.created_at,
+        professor_id=row.professor_id,
     )

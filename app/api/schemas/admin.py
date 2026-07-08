@@ -293,9 +293,15 @@ class MultiplayerRoomOut(BaseModel):
     updatedAt: datetime
     professorId: UUID | None = None
     schoolId: UUID | None = None
+    classLevel: str | None = None
+    activeSessionId: UUID | None = None
+    participantCount: int = 0
 
     @classmethod
     def from_domain(cls, x: MultiplayerRoom) -> "MultiplayerRoomOut":
+        class_level = x.class_level or (x.data.get("classLevel") if x.data else None)
+        participants = x.data.get("participants") if x.data else None
+        participant_count = len(participants) if isinstance(participants, list) else 0
         return cls(
             id=x.id,
             roomCode=x.room_code,
@@ -305,10 +311,19 @@ class MultiplayerRoomOut(BaseModel):
             updatedAt=x.updated_at,
             professorId=x.professor_id,
             schoolId=x.school_id,
+            classLevel=str(class_level) if class_level else None,
+            activeSessionId=x.active_session_id,
+            participantCount=participant_count,
         )
 
 
 # --- Setup ---
+
+
+class SetupStatusOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    setupComplete: bool
 
 
 class AdminSetupIn(BaseModel):
@@ -317,5 +332,7 @@ class AdminSetupIn(BaseModel):
     firstName: str
     lastName: str
     level: str = "2e"
+    phone: str | None = None
+    dateOfBirth: date | None = None
 
     model_config = ConfigDict(populate_by_name=True)
