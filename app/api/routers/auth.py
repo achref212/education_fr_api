@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -75,6 +76,12 @@ def register(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.message
             ) from e
         raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet e-mail est déjà utilisé",
+        ) from exc
     return RegisterOut(
         message="Un code d'activation a été envoyé à votre adresse e-mail.",
         registration_state_token=state_token,

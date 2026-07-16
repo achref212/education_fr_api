@@ -74,6 +74,11 @@ class AuthService:
 
         if self._users.get_by_email(email):
             raise AuthError("email_taken", "Cet e-mail est déjà utilisé")
+        if self._schools is not None and self._schools.get_by_email(email):
+            raise AuthError(
+                "email_taken",
+                "Cet e-mail est déjà utilisé par un établissement",
+            )
 
         ph = hash_password(password)
         user = self._users.create_user(

@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -177,6 +178,12 @@ def create_professor(
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet e-mail est déjà utilisé",
         ) from exc
     return ProfCreateOut(
         userId=prof.id,

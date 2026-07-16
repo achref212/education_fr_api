@@ -7,7 +7,7 @@ import pytest
 
 from app.application.auth_service import AuthError, AuthService
 from app.core.security import hash_password
-from app.domain.entities import User, UserWithHash
+from app.domain.entities import School, SchoolWithHash, User, UserWithHash
 from app.domain.ports import IEmailSender, IUserRepository
 
 
@@ -207,6 +207,44 @@ def test_register_duplicate() -> None:
             level="2e",
         )
     assert exc.value.code == "email_taken"
+
+
+def test_register_rejects_email_already_allocated_to_school() -> None:
+    class FakeSchoolRepo:
+        def get_by_email(self, email: str) -> SchoolWithHash | None:
+            if email != "school@gmail.com":
+                return None
+            return SchoolWithHash(
+                school=School(
+                    id=uuid4(),
+                    name="Ecole Test",
+                    email=email,
+                    created_at=datetime.now(timezone.utc),
+                    is_active=True,
+                    must_change_password=False,
+                    created_by_admin_id=uuid4(),
+                    address=None,
+                    city=None,
+                    postal_code=None,
+                    phone=None,
+                    director_name=None,
+                ),
+                password_hash=hash_password("school-pass"),
+            )
+
+    auth = AuthService(users=FakeUserRepo(), schools=FakeSchoolRepo())
+
+    with pytest.raises(AuthError) as exc:
+        auth.register(
+            email="school@gmail.com",
+            password="secret12",
+            first_name="Alice",
+            last_name="B",
+            level="2e",
+        )
+
+    assert exc.value.code == "email_taken"
+    assert "établissement" in exc.value.message
 
 
 def test_login_wrong_password() -> None:
