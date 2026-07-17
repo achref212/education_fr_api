@@ -1,5 +1,9 @@
 from app.infrastructure.models.contact_message import ContactMessageORM
-from app.infrastructure.models.delf_test import DelfTestConfigORM, DelfTestSessionORM
+from app.infrastructure.models.delf_test import (
+    DelfTestConfigORM,
+    DelfTestSessionORM,
+    DelfTestTemplateORM,
+)
 from app.infrastructure.models.game import GameORM
 from app.infrastructure.models.game_participant import GameParticipantORM
 from app.infrastructure.models.game_session import GameSessionORM
@@ -20,6 +24,7 @@ __all__ = [
     "ContactMessageORM",
     "DelfTestConfigORM",
     "DelfTestSessionORM",
+    "DelfTestTemplateORM",
     "GameORM",
     "GameParticipantORM",
     "GameSessionORM",

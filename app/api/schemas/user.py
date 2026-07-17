@@ -37,6 +37,7 @@ class UserOut(BaseModel):
     teacherSchoolId: UUID | None = None
     phone: str | None = None
     dateOfBirth: date | None = None
+    assignedLearningPathId: UUID | None = None
 
     @classmethod
     def from_domain(cls, u: User) -> "UserOut":
@@ -55,6 +56,7 @@ class UserOut(BaseModel):
             teacherSchoolId=u.teacher_school_id,
             phone=u.phone,
             dateOfBirth=u.date_of_birth,
+            assignedLearningPathId=u.assigned_learning_path_id,
         )
 
 

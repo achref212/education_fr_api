@@ -6,6 +6,7 @@ from app.domain.entities import (
     ContactMessage,
     DelfTestConfig,
     DelfTestSession,
+    DelfTestTemplate,
     Game,
     GameParticipant,
     GameSession,
@@ -60,6 +61,10 @@ class IUserRepository(Protocol):
         last_name: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+    ) -> User | None: ...
+
+    def assign_learning_path(
+        self, user_id: UUID, learning_path_id: UUID | None
     ) -> User | None: ...
 
 
@@ -140,6 +145,7 @@ class IAdminUserRepository(Protocol):
         class_level: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        assigned_learning_path_id: UUID | None = None,
     ) -> User | None: ...
 
     def delete_user(self, user_id: UUID) -> bool: ...
@@ -357,9 +363,19 @@ class IMultiplayerRepository(Protocol):
 class ILearningPathRepository(Protocol):
     def get_by_class_level(self, class_level: str) -> LearningPath | None: ...
 
+    def get_default_for_class_level(self, class_level: str) -> LearningPath | None: ...
+
+    def find_match(
+        self, class_level: str, delf_level: str | None, score: int | None
+    ) -> LearningPath | None: ...
+
     def get(self, path_id: UUID) -> LearningPath | None: ...
 
     def list_all(self) -> list[LearningPath]: ...
+
+    def count_steps(self, path_id: UUID) -> int: ...
+
+    def count_assigned_users(self, path_id: UUID) -> int: ...
 
     def list_steps(self, path_id: UUID) -> list[LearningPathStep]: ...
 
@@ -371,6 +387,9 @@ class ILearningPathRepository(Protocol):
         title: str,
         delf_target_level: str,
         description: str | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
+        is_default: bool = False,
     ) -> LearningPath: ...
 
     def update_path(
@@ -381,6 +400,9 @@ class ILearningPathRepository(Protocol):
         description: str | None = None,
         delf_target_level: str | None = None,
         is_active: bool | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
+        is_default: bool | None = None,
     ) -> LearningPath | None: ...
 
     def delete_path(self, path_id: UUID) -> bool: ...
@@ -546,3 +568,32 @@ class IDelfTestRepository(Protocol):
         questions_per_category: int | None = None,
         level_thresholds: list[dict[str, int | str]] | None = None,
     ) -> DelfTestConfig: ...
+
+    def list_templates(self) -> list[DelfTestTemplate]: ...
+
+    def get_template(self, template_id: UUID) -> DelfTestTemplate | None: ...
+
+    def get_active_template_for_class(self, class_level: str) -> DelfTestTemplate | None: ...
+
+    def create_template(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        class_level: str,
+        target_delf_level: str,
+        is_active: bool,
+        question_ids_by_category: dict[str, list[str]],
+    ) -> DelfTestTemplate: ...
+
+    def update_template(
+        self,
+        template_id: UUID,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        class_level: str | None = None,
+        target_delf_level: str | None = None,
+        is_active: bool | None = None,
+        question_ids_by_category: dict[str, list[str]] | None = None,
+    ) -> DelfTestTemplate | None: ...

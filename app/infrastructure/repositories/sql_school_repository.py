@@ -166,4 +166,5 @@ def _to_user(row: UserORM) -> User:
         teacher_school_id=row.teacher_school_id,
         phone=row.phone,
         date_of_birth=row.date_of_birth,
+        assigned_learning_path_id=row.assigned_learning_path_id,
     )

@@ -269,7 +269,7 @@ erDiagram
 | `class_level` | VARCHAR(32) | NOT NULL, UNIQUE, indexé | Niveau scolaire (ex. `6ème année`) — **1 parcours max par niveau** |
 | `title` | VARCHAR(512) | NOT NULL | Titre affiché (ex. « Parcours DELF 6ème ») |
 | `description` | TEXT | NULL | Description optionnelle |
-| `delf_target_level` | VARCHAR(32) | NOT NULL | Objectif DELF (A1, A1+, A2, A2/B1, B1) |
+| `delf_target_level` | VARCHAR(32) | NOT NULL | Objectif DELF (Prime: A1.1, A1, A2; Junior: A1, A2, B1, B2) |
 | `is_active` | BOOLEAN | NOT NULL, défaut `true` | Parcours visible pour les élèves |
 | `created_at` | TIMESTAMPTZ | NOT NULL | Date de création |
 
@@ -422,7 +422,7 @@ erDiagram
 | `id` | UUID | PK | Identifiant session test |
 | `user_id` | UUID | FK → `users.id`, NOT NULL, ON DELETE CASCADE | Élève |
 | `class_level` | VARCHAR(32) | NOT NULL | Niveau scolaire au moment du test |
-| `target_delf_level` | VARCHAR(32) | NOT NULL | Objectif DELF du parcours (ex. A1+) |
+| `target_delf_level` | VARCHAR(32) | NOT NULL | Objectif DELF du parcours (ex. A1.1, A2, B1, B2) |
 | `status` | VARCHAR(32) | NOT NULL, défaut `in_progress` | État : `in_progress` \| `completed` \| `abandoned` |
 | `question_ids_by_category` | JSONB | NOT NULL, défaut `{}` | `{ "Grammaire": [uuid…], "Conjugaison": [uuid…], … }` |
 | `answers` | JSONB | NOT NULL, défaut `[]` | Réponses soumises par catégorie |
@@ -446,7 +446,7 @@ erDiagram
 | `level_thresholds` | JSONB | NOT NULL, défaut `[]` | Seuils : `[{ level, minOverall, minCategory }, …]` du plus élevé au plus bas |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | Dernière modification admin |
 
-**Seuils par défaut :** B1 ≥ 85 %, A2/B1 ≥ 75 %, A2 ≥ 65 %, A1+ ≥ 50 %, A1 ≥ 35 %.
+**Seuils par défaut :** B2 ≥ 90 %, B1 ≥ 80 %, A2 ≥ 65 %, A1 ≥ 50 %, A1.1 ≥ 35 %.
 
 ---
 
@@ -701,7 +701,7 @@ Fichier : `app/domain/constants.py`
 |---|---|---|
 | `CLASS_LEVELS` | 2ème → 9ème année | Niveaux scolaires tunisiens |
 | `DELF_TARGETS_BY_CLASS` | Map niveau → DELF | Objectif DELF par année |
-| `DELF_LEVELS` | A1, A1+, A2, A2/B1, B1 | Niveaux DELF possibles |
+| `DELF_LEVELS` | A1.1, A1, A2, B1, B2 | Niveaux DELF possibles |
 | `STEP_TYPES` | lesson, quiz, story | Types d'étapes parcours |
 | `STEP_STATUSES` | locked, available, in_progress, completed | États progression |
 | `SESSION_STATUS` | waiting, in_progress, finished, cancelled | États session multijoueur |

@@ -12,7 +12,12 @@ from app.domain.entities import (
     StudentStepProgress,
     User,
 )
-from app.domain.ports import ILearningPathRepository, IStudentProgressRepository
+from app.domain.ports import (
+    IDelfTestRepository,
+    ILearningPathRepository,
+    IStudentProgressRepository,
+    IUserRepository,
+)
 
 
 class ParcoursError(Exception):
@@ -29,12 +34,16 @@ class ParcoursService:
         stats_service: StudentStatsService,
         progress_service: ProgressService,
         difficulty_service: DifficultyService,
+        delf_tests: IDelfTestRepository | None = None,
+        users: IUserRepository | None = None,
     ) -> None:
         self._paths = paths
         self._student_progress = student_progress
         self._stats = stats_service
         self._progress = progress_service
         self._difficulty = difficulty_service
+        self._delf_tests = delf_tests
+        self._users = users
 
     def _resolve_class_level(self, user: User) -> str:
         if user.class_level:
@@ -43,7 +52,7 @@ class ParcoursService:
 
     def get_parcours_for_user(self, user: User) -> dict:
         class_level = self._resolve_class_level(user)
-        path = self._paths.get_by_class_level(class_level)
+        path = self._resolve_learning_path(user, class_level)
         if path is None:
             raise ParcoursError(
                 f"Aucun parcours disponible pour {class_level}"
@@ -178,6 +187,34 @@ class ParcoursService:
     def set_difficulty(self, user: User, difficulty: str) -> dict:
         stats = self._stats.set_preferred_difficulty(user.id, difficulty)
         return {"preferredDifficulty": stats.preferred_difficulty}
+
+    def _resolve_learning_path(self, user: User, class_level: str):
+        if user.assigned_learning_path_id is not None:
+            assigned = self._paths.get(user.assigned_learning_path_id)
+            if assigned is not None and assigned.is_active:
+                return assigned
+
+        if self._delf_tests is not None:
+            latest = next(
+                (
+                    session
+                    for session in self._delf_tests.list_sessions_for_user(user.id)
+                    if session.status == "completed"
+                ),
+                None,
+            )
+            if latest is not None:
+                matched = self._paths.find_match(
+                    class_level=class_level,
+                    delf_level=latest.achieved_delf_level,
+                    score=latest.overall_score,
+                )
+                if matched is not None:
+                    if self._users is not None:
+                        self._users.assign_learning_path(user.id, matched.id)
+                    return matched
+
+        return self._paths.get_default_for_class_level(class_level)
 
     def _resolve_step_statuses(
         self,

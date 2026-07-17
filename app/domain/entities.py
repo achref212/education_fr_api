@@ -20,6 +20,7 @@ class User:
     teacher_school_id: UUID | None = None
     phone: str | None = None
     date_of_birth: date | None = None
+    assigned_learning_path_id: UUID | None = None
 
 
 @dataclass
@@ -154,6 +155,9 @@ class LearningPath:
     created_at: datetime
     description: str | None = None
     is_active: bool = True
+    min_score: int | None = None
+    max_score: int | None = None
+    is_default: bool = False
 
 
 @dataclass
@@ -279,4 +283,17 @@ class DelfTestConfig:
     id: UUID
     questions_per_category: int
     level_thresholds: list[dict[str, int | str]]
+    updated_at: datetime
+
+
+@dataclass
+class DelfTestTemplate:
+    id: UUID
+    name: str
+    description: str | None
+    class_level: str
+    target_delf_level: str
+    is_active: bool
+    question_ids_by_category: dict[str, list[str]]
+    created_at: datetime
     updated_at: datetime

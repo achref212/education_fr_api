@@ -35,6 +35,7 @@ class ParcoursOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     pathId: UUID
+    assignedPathId: UUID | None = None
     title: str
     description: str | None
     classLevel: str
@@ -85,6 +86,9 @@ class LearningPathCreateIn(BaseModel):
     title: str
     delfTargetLevel: str
     description: str | None = None
+    minScore: int | None = Field(default=None, ge=0, le=100)
+    maxScore: int | None = Field(default=None, ge=0, le=100)
+    isDefault: bool = False
 
 
 class LearningPathUpdateIn(BaseModel):
@@ -92,6 +96,9 @@ class LearningPathUpdateIn(BaseModel):
     description: str | None = None
     delfTargetLevel: str | None = None
     isActive: bool | None = None
+    minScore: int | None = Field(default=None, ge=0, le=100)
+    maxScore: int | None = Field(default=None, ge=0, le=100)
+    isDefault: bool | None = None
 
 
 class LearningPathOut(BaseModel):
@@ -103,6 +110,11 @@ class LearningPathOut(BaseModel):
     description: str | None
     delfTargetLevel: str
     isActive: bool
+    minScore: int | None = None
+    maxScore: int | None = None
+    isDefault: bool = False
+    stepCount: int = 0
+    assignedUsersCount: int = 0
     createdAt: datetime
 
 

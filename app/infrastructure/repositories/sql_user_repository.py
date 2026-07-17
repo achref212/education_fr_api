@@ -108,6 +108,16 @@ class SqlUserRepository(IUserRepository):
         self._session.flush()
         return _to_domain_user(row)
 
+    def assign_learning_path(
+        self, user_id: UUID, learning_path_id: UUID | None
+    ) -> User | None:
+        row = self._session.get(UserORM, user_id)
+        if row is None:
+            return None
+        row.assigned_learning_path_id = learning_path_id
+        self._session.flush()
+        return _to_domain_user(row)
+
 
 def _to_domain_user(row: UserORM) -> User:
     return User(
@@ -125,4 +135,5 @@ def _to_domain_user(row: UserORM) -> User:
         teacher_school_id=row.teacher_school_id,
         phone=row.phone,
         date_of_birth=row.date_of_birth,
+        assigned_learning_path_id=row.assigned_learning_path_id,
     )

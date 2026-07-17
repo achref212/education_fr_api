@@ -7,9 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.constants import DEFAULT_DELF_LEVEL_THRESHOLDS, DEFAULT_QUESTIONS_PER_CATEGORY
-from app.domain.entities import DelfTestConfig, DelfTestSession
+from app.domain.entities import DelfTestConfig, DelfTestSession, DelfTestTemplate
 from app.domain.ports import IDelfTestRepository
-from app.infrastructure.models.delf_test import DelfTestConfigORM, DelfTestSessionORM
+from app.infrastructure.models.delf_test import (
+    DelfTestConfigORM,
+    DelfTestSessionORM,
+    DelfTestTemplateORM,
+)
 
 
 class SqlDelfTestRepository(IDelfTestRepository):
@@ -142,6 +146,106 @@ class SqlDelfTestRepository(IDelfTestRepository):
         self._session.flush()
         return _config_to_domain(row)
 
+    def list_templates(self) -> list[DelfTestTemplate]:
+        stmt = select(DelfTestTemplateORM).order_by(
+            DelfTestTemplateORM.class_level.asc(),
+            DelfTestTemplateORM.updated_at.desc(),
+        )
+        return [_template_to_domain(r) for r in self._session.scalars(stmt).all()]
+
+    def get_template(self, template_id: UUID) -> DelfTestTemplate | None:
+        row = self._session.get(DelfTestTemplateORM, template_id)
+        return _template_to_domain(row) if row else None
+
+    def get_active_template_for_class(self, class_level: str) -> DelfTestTemplate | None:
+        stmt = (
+            select(DelfTestTemplateORM)
+            .where(
+                DelfTestTemplateORM.class_level == class_level,
+                DelfTestTemplateORM.is_active.is_(True),
+            )
+            .order_by(DelfTestTemplateORM.updated_at.desc())
+            .limit(1)
+        )
+        row = self._session.scalar(stmt)
+        return _template_to_domain(row) if row else None
+
+    def create_template(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        class_level: str,
+        target_delf_level: str,
+        is_active: bool,
+        question_ids_by_category: dict[str, list[str]],
+    ) -> DelfTestTemplate:
+        now = datetime.now(timezone.utc)
+        if is_active:
+            self._deactivate_templates_for_class(class_level)
+        row = DelfTestTemplateORM(
+            id=uuid.uuid4(),
+            name=name,
+            description=description,
+            class_level=class_level,
+            target_delf_level=target_delf_level,
+            is_active=is_active,
+            question_ids_by_category=dict(question_ids_by_category),
+            created_at=now,
+            updated_at=now,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return _template_to_domain(row)
+
+    def update_template(
+        self,
+        template_id: UUID,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        class_level: str | None = None,
+        target_delf_level: str | None = None,
+        is_active: bool | None = None,
+        question_ids_by_category: dict[str, list[str]] | None = None,
+    ) -> DelfTestTemplate | None:
+        row = self._session.get(DelfTestTemplateORM, template_id)
+        if row is None:
+            return None
+        next_class_level = class_level if class_level is not None else row.class_level
+        if is_active is True:
+            self._deactivate_templates_for_class(next_class_level, exclude_id=template_id)
+        if name is not None:
+            row.name = name
+        if description is not None:
+            row.description = description
+        if class_level is not None:
+            row.class_level = class_level
+        if target_delf_level is not None:
+            row.target_delf_level = target_delf_level
+        if is_active is not None:
+            row.is_active = is_active
+        if question_ids_by_category is not None:
+            row.question_ids_by_category = dict(question_ids_by_category)
+        row.updated_at = datetime.now(timezone.utc)
+        self._session.flush()
+        return _template_to_domain(row)
+
+    def _deactivate_templates_for_class(
+        self, class_level: str, exclude_id: UUID | None = None
+    ) -> None:
+        stmt = select(DelfTestTemplateORM).where(
+            DelfTestTemplateORM.class_level == class_level,
+            DelfTestTemplateORM.is_active.is_(True),
+        )
+        rows = self._session.scalars(stmt).all()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if exclude_id is not None and row.id == exclude_id:
+                continue
+            row.is_active = False
+            row.updated_at = now
+
 
 def _session_to_domain(row: DelfTestSessionORM) -> DelfTestSession:
     return DelfTestSession(
@@ -166,6 +270,23 @@ def _config_to_domain(row: DelfTestConfigORM) -> DelfTestConfig:
         id=row.id,
         questions_per_category=row.questions_per_category,
         level_thresholds=list(row.level_thresholds or []),
+        updated_at=row.updated_at,
+    )
+
+
+def _template_to_domain(row: DelfTestTemplateORM) -> DelfTestTemplate:
+    return DelfTestTemplate(
+        id=row.id,
+        name=row.name,
+        description=row.description,
+        class_level=row.class_level,
+        target_delf_level=row.target_delf_level,
+        is_active=row.is_active,
+        question_ids_by_category={
+            str(k): [str(qid) for qid in v]
+            for k, v in (row.question_ids_by_category or {}).items()
+        },
+        created_at=row.created_at,
         updated_at=row.updated_at,
     )
 

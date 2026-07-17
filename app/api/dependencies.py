@@ -347,6 +347,10 @@ def get_game_repo(db: Session = Depends(get_db)) -> IGameRepository:
     return SqlGameRepository(db)
 
 
+def get_delf_test_repo(db: Session = Depends(get_db)) -> IDelfTestRepository:
+    return SqlDelfTestRepository(db)
+
+
 def get_difficulty_service() -> DifficultyService:
     return DifficultyService()
 
@@ -363,6 +367,8 @@ def get_parcours_service(
     stats_service: StudentStatsService = Depends(get_student_stats_service),
     progress_service: ProgressService = Depends(get_progress_service),
     difficulty_service: DifficultyService = Depends(get_difficulty_service),
+    delf_tests: IDelfTestRepository = Depends(get_delf_test_repo),
+    users: IUserRepository = Depends(get_user_repo),
 ) -> ParcoursService:
     return ParcoursService(
         paths=paths,
@@ -370,6 +376,8 @@ def get_parcours_service(
         stats_service=stats_service,
         progress_service=progress_service,
         difficulty_service=difficulty_service,
+        delf_tests=delf_tests,
+        users=users,
     )
 
 
@@ -391,17 +399,17 @@ def get_game_session_service(
     )
 
 
-def get_delf_test_repo(db: Session = Depends(get_db)) -> IDelfTestRepository:
-    return SqlDelfTestRepository(db)
-
-
 def get_delf_test_service(
     delf_tests: IDelfTestRepository = Depends(get_delf_test_repo),
     quiz: IQuizRepository = Depends(get_quiz_repo),
     progress: IProgressRepository = Depends(get_progress_repo),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+    users: IUserRepository = Depends(get_user_repo),
 ) -> DelfTestService:
     return DelfTestService(
         delf_tests=delf_tests,
         quiz=quiz,
         progress=progress,
+        paths=paths,
+        users=users,
     )

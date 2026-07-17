@@ -9,6 +9,7 @@ from app.application.parcours_service import ParcoursError, ParcoursService
 from app.application.progress_service import ProgressService
 from app.application.student_stats_service import StudentStatsService
 from app.domain.entities import (
+    DelfTestSession,
     LearningPath,
     LearningPathStep,
     ProgressData,
@@ -21,18 +22,54 @@ from app.domain.entities import (
 @dataclass
 class FakeLearningPathRepo:
     path: LearningPath | None = None
+    paths: list[LearningPath] = field(default_factory=list)
     steps: list[LearningPathStep] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        if self.path and not self.paths:
+            self.paths = [self.path]
+
     def get_by_class_level(self, class_level: str) -> LearningPath | None:
-        if self.path and self.path.class_level == class_level:
-            return self.path
+        return self.get_default_for_class_level(class_level)
+
+    def get_default_for_class_level(self, class_level: str) -> LearningPath | None:
+        return next(
+            (
+                p
+                for p in sorted(self.paths, key=lambda x: (not x.is_default, x.created_at))
+                if p.class_level == class_level and p.is_active
+            ),
+            None,
+        )
+
+    def find_match(
+        self, class_level: str, delf_level: str | None, score: int | None
+    ) -> LearningPath | None:
+        candidates = [p for p in self.paths if p.class_level == class_level and p.is_active]
+        same_level = [p for p in candidates if delf_level and p.delf_target_level == delf_level]
+        for bucket in (same_level, candidates):
+            for path in bucket:
+                if (
+                    score is not None
+                    and (path.min_score is None or score >= path.min_score)
+                    and (path.max_score is None or score <= path.max_score)
+                ):
+                    return path
+            if bucket:
+                return bucket[0]
         return None
 
     def get(self, path_id: UUID) -> LearningPath | None:
-        return self.path if self.path and self.path.id == path_id else None
+        return next((p for p in self.paths if p.id == path_id), None)
 
     def list_all(self) -> list[LearningPath]:
-        return [self.path] if self.path else []
+        return list(self.paths)
+
+    def count_steps(self, path_id: UUID) -> int:
+        return len(self.list_steps(path_id))
+
+    def count_assigned_users(self, path_id: UUID) -> int:
+        return 0
 
     def list_steps(self, path_id: UUID) -> list[LearningPathStep]:
         return [s for s in self.steps if s.path_id == path_id]
@@ -97,6 +134,25 @@ class FakeProgressRepo:
         self.data[user_id] = data
 
 
+@dataclass
+class FakeDelfTestRepo:
+    sessions: list[DelfTestSession] = field(default_factory=list)
+
+    def list_sessions_for_user(self, user_id: UUID) -> list[DelfTestSession]:
+        return [s for s in self.sessions if s.user_id == user_id]
+
+
+@dataclass
+class FakeUserRepo:
+    assigned: dict[UUID, UUID | None] = field(default_factory=dict)
+
+    def assign_learning_path(
+        self, user_id: UUID, learning_path_id: UUID | None
+    ) -> User | None:
+        self.assigned[user_id] = learning_path_id
+        return None
+
+
 def _student(class_level: str = "5ème année") -> User:
     return User(
         id=uuid4(),
@@ -113,6 +169,8 @@ def _build_service(
     path_repo: FakeLearningPathRepo,
     progress_repo: FakeStudentProgressRepo,
     legacy_repo: FakeProgressRepo,
+    delf_repo: FakeDelfTestRepo | None = None,
+    user_repo: FakeUserRepo | None = None,
 ) -> ParcoursService:
     stats_service = StudentStatsService(progress_repo)
     return ParcoursService(
@@ -121,6 +179,8 @@ def _build_service(
         stats_service=stats_service,
         progress_service=ProgressService(legacy_repo),
         difficulty_service=DifficultyService(),
+        delf_tests=delf_repo,
+        users=user_repo,
     )
 
 
@@ -133,7 +193,7 @@ def test_parcours_unlocks_first_step() -> None:
         id=path_id,
         class_level="5ème année",
         title="Parcours",
-        delf_target_level="A1+",
+        delf_target_level="A2",
         created_at=now,
     )
     steps = [
@@ -178,7 +238,7 @@ def test_complete_step_unlocks_next_and_syncs_progress() -> None:
         id=path_id,
         class_level="5ème année",
         title="Parcours",
-        delf_target_level="A1+",
+        delf_target_level="A2",
         created_at=now,
     )
     steps = [
@@ -215,7 +275,7 @@ def test_complete_step_fails_below_threshold() -> None:
         id=path_id,
         class_level="5ème année",
         title="Parcours",
-        delf_target_level="A1+",
+        delf_target_level="A2",
         created_at=now,
     )
     steps = [
@@ -251,3 +311,83 @@ def test_missing_class_level_raises() -> None:
     student.class_level = None
     with pytest.raises(ParcoursError):
         svc.get_parcours_for_user(student)
+
+
+def test_parcours_prefers_assigned_learning_path() -> None:
+    now = datetime.now(timezone.utc)
+    default_path = LearningPath(
+        id=uuid4(),
+        class_level="5ème année",
+        title="Default",
+        delf_target_level="A2",
+        created_at=now,
+        is_default=True,
+    )
+    assigned_path = LearningPath(
+        id=uuid4(),
+        class_level="5ème année",
+        title="Assigned",
+        delf_target_level="A2",
+        created_at=now,
+    )
+    svc = _build_service(
+        FakeLearningPathRepo(paths=[default_path, assigned_path]),
+        FakeStudentProgressRepo(),
+        FakeProgressRepo(),
+    )
+    student = _student()
+    student.assigned_learning_path_id = assigned_path.id
+    data = svc.get_parcours_for_user(student)
+    assert data["path"].id == assigned_path.id
+
+
+def test_parcours_matches_latest_delf_result_when_unassigned() -> None:
+    now = datetime.now(timezone.utc)
+    low_path = LearningPath(
+        id=uuid4(),
+        class_level="5ème année",
+        title="A1 path",
+        delf_target_level="A1",
+        created_at=now,
+        min_score=0,
+        max_score=59,
+    )
+    high_path = LearningPath(
+        id=uuid4(),
+        class_level="5ème année",
+        title="A2 path",
+        delf_target_level="A2",
+        created_at=now,
+        min_score=60,
+        max_score=100,
+    )
+    student = _student()
+    delf_repo = FakeDelfTestRepo(
+        sessions=[
+            DelfTestSession(
+                id=uuid4(),
+                user_id=student.id,
+                class_level="5ème année",
+                target_delf_level="A2",
+                status="completed",
+                question_ids_by_category={},
+                answers=[],
+                category_scores={},
+                created_at=now,
+                overall_score=82,
+                achieved_delf_level="A2",
+                finished_at=now,
+            )
+        ]
+    )
+    user_repo = FakeUserRepo()
+    svc = _build_service(
+        FakeLearningPathRepo(paths=[low_path, high_path]),
+        FakeStudentProgressRepo(),
+        FakeProgressRepo(),
+        delf_repo,
+        user_repo,
+    )
+    data = svc.get_parcours_for_user(student)
+    assert data["path"].id == high_path.id
+    assert user_repo.assigned[student.id] == high_path.id

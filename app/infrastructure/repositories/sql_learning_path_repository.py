@@ -2,13 +2,14 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.entities import LearningPath, LearningPathStep
 from app.domain.ports import ILearningPathRepository
 from app.infrastructure.models.learning_path import LearningPathORM
 from app.infrastructure.models.learning_path_step import LearningPathStepORM
+from app.infrastructure.models.user import UserORM
 
 
 class SqlLearningPathRepository(ILearningPathRepository):
@@ -16,20 +17,82 @@ class SqlLearningPathRepository(ILearningPathRepository):
         self._session = session
 
     def get_by_class_level(self, class_level: str) -> LearningPath | None:
+        return self.get_default_for_class_level(class_level)
+
+    def get_default_for_class_level(self, class_level: str) -> LearningPath | None:
         stmt = select(LearningPathORM).where(
             LearningPathORM.class_level == class_level,
             LearningPathORM.is_active.is_(True),
+        ).order_by(
+            LearningPathORM.is_default.desc(),
+            LearningPathORM.created_at.asc(),
         )
         row = self._session.scalar(stmt)
         return _path_to_domain(row) if row else None
+
+    def find_match(
+        self, class_level: str, delf_level: str | None, score: int | None
+    ) -> LearningPath | None:
+        stmt = (
+            select(LearningPathORM)
+            .where(
+                LearningPathORM.class_level == class_level,
+                LearningPathORM.is_active.is_(True),
+            )
+            .order_by(
+                LearningPathORM.is_default.desc(),
+                LearningPathORM.min_score.desc().nullslast(),
+                LearningPathORM.created_at.asc(),
+            )
+        )
+        candidates = [_path_to_domain(r) for r in self._session.scalars(stmt).all()]
+        if not candidates:
+            return None
+
+        same_level = [
+            path for path in candidates if delf_level and path.delf_target_level == delf_level
+        ]
+        for bucket in (same_level, candidates):
+            scored = [path for path in bucket if _score_matches(path, score)]
+            if scored:
+                return scored[0]
+            unbounded = [
+                path
+                for path in bucket
+                if path.min_score is None and path.max_score is None
+            ]
+            if unbounded:
+                return unbounded[0]
+        return candidates[0]
 
     def get(self, path_id: UUID) -> LearningPath | None:
         row = self._session.get(LearningPathORM, path_id)
         return _path_to_domain(row) if row else None
 
     def list_all(self) -> list[LearningPath]:
-        stmt = select(LearningPathORM).order_by(LearningPathORM.class_level)
+        stmt = select(LearningPathORM).order_by(
+            LearningPathORM.class_level,
+            LearningPathORM.delf_target_level,
+            LearningPathORM.min_score.asc().nullsfirst(),
+            LearningPathORM.created_at,
+        )
         return [_path_to_domain(r) for r in self._session.scalars(stmt).all()]
+
+    def count_steps(self, path_id: UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(LearningPathStepORM)
+            .where(LearningPathStepORM.path_id == path_id)
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def count_assigned_users(self, path_id: UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(UserORM)
+            .where(UserORM.assigned_learning_path_id == path_id)
+        )
+        return int(self._session.scalar(stmt) or 0)
 
     def list_steps(self, path_id: UUID) -> list[LearningPathStep]:
         stmt = (
@@ -49,6 +112,9 @@ class SqlLearningPathRepository(ILearningPathRepository):
         title: str,
         delf_target_level: str,
         description: str | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
+        is_default: bool = False,
     ) -> LearningPath:
         now = datetime.now(timezone.utc)
         row = LearningPathORM(
@@ -58,6 +124,9 @@ class SqlLearningPathRepository(ILearningPathRepository):
             description=description,
             delf_target_level=delf_target_level,
             is_active=True,
+            min_score=min_score,
+            max_score=max_score,
+            is_default=is_default,
             created_at=now,
         )
         self._session.add(row)
@@ -72,6 +141,9 @@ class SqlLearningPathRepository(ILearningPathRepository):
         description: str | None = None,
         delf_target_level: str | None = None,
         is_active: bool | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
+        is_default: bool | None = None,
     ) -> LearningPath | None:
         row = self._session.get(LearningPathORM, path_id)
         if row is None:
@@ -84,6 +156,10 @@ class SqlLearningPathRepository(ILearningPathRepository):
             row.delf_target_level = delf_target_level
         if is_active is not None:
             row.is_active = is_active
+        row.min_score = min_score
+        row.max_score = max_score
+        if is_default is not None:
+            row.is_default = is_default
         self._session.flush()
         return _path_to_domain(row)
 
@@ -178,6 +254,9 @@ def _path_to_domain(row: LearningPathORM) -> LearningPath:
         created_at=row.created_at,
         description=row.description,
         is_active=row.is_active,
+        min_score=row.min_score,
+        max_score=row.max_score,
+        is_default=row.is_default,
     )
 
 
@@ -195,3 +274,13 @@ def _step_to_domain(row: LearningPathStepORM) -> LearningPathStep:
         story_id=row.story_id,
         required_step_id=row.required_step_id,
     )
+
+
+def _score_matches(path: LearningPath, score: int | None) -> bool:
+    if score is None:
+        return path.min_score is None and path.max_score is None
+    if path.min_score is not None and score < path.min_score:
+        return False
+    if path.max_score is not None and score > path.max_score:
+        return False
+    return True

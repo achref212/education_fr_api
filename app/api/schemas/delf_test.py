@@ -149,3 +149,50 @@ class DelfTestConfigUpdateIn(BaseModel):
 
     questionsPerCategory: int | None = Field(default=None, ge=1, le=20)
     levelThresholds: list[DelfLevelThresholdIn] | None = None
+
+
+class DelfTestTemplateSectionOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    category: str
+    questionIds: list[UUID]
+    questionCount: int
+    questions: list[DelfTestQuestionOut] | None = None
+
+
+class DelfTestTemplateOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    name: str
+    description: str | None = None
+    classLevel: str
+    targetDelfLevel: str
+    isActive: bool
+    questionIdsByCategory: dict[str, list[UUID]]
+    sections: list[DelfTestTemplateSectionOut]
+    totalQuestions: int
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class DelfTestTemplateCreateIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    classLevel: str
+    targetDelfLevel: str
+    isActive: bool = True
+    questionIdsByCategory: dict[str, list[UUID]]
+
+
+class DelfTestTemplateUpdateIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    classLevel: str | None = None
+    targetDelfLevel: str | None = None
+    isActive: bool | None = None
+    questionIdsByCategory: dict[str, list[UUID]] | None = None

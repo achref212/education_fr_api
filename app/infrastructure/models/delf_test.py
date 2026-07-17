@@ -51,3 +51,21 @@ class DelfTestConfigORM(Base):
     questions_per_category: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     level_thresholds: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DelfTestTemplateORM(Base):
+    __tablename__ = "delf_test_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    class_level: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_delf_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    question_ids_by_category: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

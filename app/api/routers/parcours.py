@@ -50,6 +50,7 @@ def _build_parcours_out(data: dict) -> ParcoursOut:
     ]
     return ParcoursOut(
         pathId=path.id,
+        assignedPathId=path.id,
         title=path.title,
         description=path.description,
         classLevel=path.class_level,

@@ -5,12 +5,19 @@ from uuid import UUID
 
 from app.domain.constants import (
     DEFAULT_DELF_LEVEL_THRESHOLDS,
+    CLASS_LEVELS,
     DELF_LEVELS,
     DELF_TARGETS_BY_CLASS,
     QUIZ_CATEGORIES,
 )
 from app.domain.entities import DelfTestConfig, DelfTestSession, ProgressData, User
-from app.domain.ports import IDelfTestRepository, IProgressRepository, IQuizRepository
+from app.domain.ports import (
+    IDelfTestRepository,
+    ILearningPathRepository,
+    IProgressRepository,
+    IQuizRepository,
+    IUserRepository,
+)
 
 
 class DelfTestError(Exception):
@@ -25,10 +32,14 @@ class DelfTestService:
         delf_tests: IDelfTestRepository,
         quiz: IQuizRepository,
         progress: IProgressRepository,
+        paths: ILearningPathRepository | None = None,
+        users: IUserRepository | None = None,
     ) -> None:
         self._delf_tests = delf_tests
         self._quiz = quiz
         self._progress = progress
+        self._paths = paths
+        self._users = users
 
     def get_config(self) -> DelfTestConfig:
         return self._delf_tests.get_config()
@@ -43,9 +54,14 @@ class DelfTestService:
             raise DelfTestError("Le nombre de questions par catégorie doit être au moins 1")
         if level_thresholds is not None and not level_thresholds:
             raise DelfTestError("Les seuils DELF ne peuvent pas être vides")
+        normalized_thresholds = (
+            self._normalize_thresholds(level_thresholds)
+            if level_thresholds is not None
+            else None
+        )
         return self._delf_tests.update_config(
             questions_per_category=questions_per_category,
-            level_thresholds=level_thresholds,
+            level_thresholds=normalized_thresholds,
         )
 
     def start_test(self, user: User) -> dict[str, Any]:
@@ -56,7 +72,12 @@ class DelfTestService:
             raise DelfTestError("Un test DELF est déjà en cours")
         config = self._delf_tests.get_config()
         target = DELF_TARGETS_BY_CLASS.get(user.class_level, "A1")
-        question_ids_by_category = self._sample_questions(user.class_level, config)
+        template = self._delf_tests.get_active_template_for_class(user.class_level)
+        question_ids_by_category = (
+            dict(template.question_ids_by_category)
+            if template is not None
+            else self._sample_questions(user.class_level, config)
+        )
         session = self._delf_tests.create_session(
             user_id=user.id,
             class_level=user.class_level,
@@ -164,6 +185,7 @@ class DelfTestService:
         if updated is None:
             raise DelfTestError("Session introuvable")
         self._sync_progress(user.id, updated)
+        self._assign_parcours_from_result(user, updated)
         return self.get_results(user, session_id)
 
     def get_results(self, user: User, session_id: UUID) -> dict[str, Any]:
@@ -201,6 +223,92 @@ class DelfTestService:
             status=status,
         )
 
+    def list_templates(self) -> list[dict[str, Any]]:
+        return [self._build_template_out(t) for t in self._delf_tests.list_templates()]
+
+    def get_template(self, template_id: UUID) -> dict[str, Any]:
+        template = self._delf_tests.get_template(template_id)
+        if template is None:
+            raise DelfTestError("Modèle introuvable")
+        return self._build_template_out(template, include_questions=True)
+
+    def create_template(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        class_level: str,
+        target_delf_level: str,
+        is_active: bool,
+        question_ids_by_category: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        normalized = self._validate_template_payload(
+            name=name,
+            class_level=class_level,
+            target_delf_level=target_delf_level,
+            question_ids_by_category=question_ids_by_category,
+        )
+        template = self._delf_tests.create_template(
+            name=name.strip(),
+            description=description.strip() if description else None,
+            class_level=class_level,
+            target_delf_level=target_delf_level,
+            is_active=is_active,
+            question_ids_by_category=normalized,
+        )
+        return self._build_template_out(template, include_questions=True)
+
+    def update_template(
+        self,
+        template_id: UUID,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        class_level: str | None = None,
+        target_delf_level: str | None = None,
+        is_active: bool | None = None,
+        question_ids_by_category: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        current = self._delf_tests.get_template(template_id)
+        if current is None:
+            raise DelfTestError("Modèle introuvable")
+        next_name = name if name is not None else current.name
+        next_class = class_level if class_level is not None else current.class_level
+        next_target = (
+            target_delf_level
+            if target_delf_level is not None
+            else current.target_delf_level
+        )
+        next_questions = (
+            question_ids_by_category
+            if question_ids_by_category is not None
+            else current.question_ids_by_category
+        )
+        normalized = self._validate_template_payload(
+            name=next_name,
+            class_level=next_class,
+            target_delf_level=next_target,
+            question_ids_by_category=next_questions,
+        )
+        updated = self._delf_tests.update_template(
+            template_id,
+            name=next_name.strip(),
+            description=description.strip() if description else None,
+            class_level=next_class,
+            target_delf_level=next_target,
+            is_active=is_active,
+            question_ids_by_category=normalized,
+        )
+        if updated is None:
+            raise DelfTestError("Modèle introuvable")
+        return self._build_template_out(updated, include_questions=True)
+
+    def disable_template(self, template_id: UUID) -> dict[str, Any]:
+        updated = self._delf_tests.update_template(template_id, is_active=False)
+        if updated is None:
+            raise DelfTestError("Modèle introuvable")
+        return self._build_template_out(updated)
+
     def get_admin_session(self, session_id: UUID) -> dict[str, Any]:
         session = self._delf_tests.get_session(session_id)
         if session is None:
@@ -227,7 +335,9 @@ class DelfTestService:
 
     def _compute_levels(self, session: DelfTestSession) -> tuple[int, str]:
         config = self._delf_tests.get_config()
-        thresholds = config.level_thresholds or list(DEFAULT_DELF_LEVEL_THRESHOLDS)
+        thresholds = self._normalize_thresholds(
+            config.level_thresholds or list(DEFAULT_DELF_LEVEL_THRESHOLDS)
+        )
         scores = list(session.category_scores.values())
         overall = int(round(sum(scores) / len(scores))) if scores else 0
         achieved = "A1"
@@ -239,6 +349,81 @@ class DelfTestService:
                 achieved = level
                 break
         return overall, achieved
+
+    def _normalize_thresholds(
+        self, thresholds: list[dict[str, int | str]]
+    ) -> list[dict[str, int | str]]:
+        if not thresholds:
+            raise DelfTestError("Les seuils DELF ne peuvent pas être vides")
+        normalized: list[dict[str, int | str]] = []
+        seen: set[str] = set()
+        for band in thresholds:
+            level = str(band.get("level", "")).strip()
+            if level not in DELF_LEVELS:
+                raise DelfTestError(f"Niveau DELF invalide : {level or '—'}")
+            if level in seen:
+                raise DelfTestError(f"Niveau DELF dupliqué : {level}")
+            min_overall = int(band.get("minOverall", 0))
+            min_category = int(band.get("minCategory", 0))
+            if not (0 <= min_overall <= 100 and 0 <= min_category <= 100):
+                raise DelfTestError("Les seuils DELF doivent être entre 0 et 100")
+            seen.add(level)
+            normalized.append(
+                {
+                    "level": level,
+                    "minOverall": min_overall,
+                    "minCategory": min_category,
+                }
+            )
+        return sorted(
+            normalized,
+            key=lambda band: (
+                int(band["minOverall"]),
+                int(band["minCategory"]),
+                DELF_LEVELS.index(str(band["level"])),
+            ),
+            reverse=True,
+        )
+
+    def _validate_template_payload(
+        self,
+        *,
+        name: str,
+        class_level: str,
+        target_delf_level: str,
+        question_ids_by_category: dict[str, list[str]],
+    ) -> dict[str, list[str]]:
+        if not name.strip():
+            raise DelfTestError("Le nom du modèle est obligatoire")
+        if class_level not in CLASS_LEVELS:
+            raise DelfTestError("Niveau scolaire invalide")
+        if target_delf_level not in DELF_LEVELS:
+            raise DelfTestError("Objectif DELF invalide")
+        normalized: dict[str, list[str]] = {}
+        seen_ids: set[str] = set()
+        for category in QUIZ_CATEGORIES:
+            raw_ids = question_ids_by_category.get(category, [])
+            if not raw_ids:
+                raise DelfTestError(f"La catégorie {category} doit contenir au moins une question")
+            normalized[category] = []
+            for question_id in raw_ids:
+                question_id_str = str(question_id)
+                if question_id_str in seen_ids:
+                    raise DelfTestError("Une question ne peut pas être utilisée deux fois")
+                try:
+                    question_uuid = UUID(question_id_str)
+                except ValueError as exc:
+                    raise DelfTestError("Identifiant de question invalide") from exc
+                question = self._quiz.get(question_uuid)
+                if question is None:
+                    raise DelfTestError("Question introuvable")
+                if question.category != category:
+                    raise DelfTestError(
+                        f"La question {question_id_str} n'appartient pas à {category}"
+                    )
+                normalized[category].append(question_id_str)
+                seen_ids.add(question_id_str)
+        return normalized
 
     def _compare_to_target(self, target: str, achieved: str) -> str:
         order = {level: index for index, level in enumerate(DELF_LEVELS)}
@@ -263,6 +448,19 @@ class DelfTestService:
             exercise_scores=dict(data.exercise_scores),
         )
         self._progress.upsert_for_user(user_id, updated)
+
+    def _assign_parcours_from_result(
+        self, user: User, session: DelfTestSession
+    ) -> None:
+        if self._paths is None or self._users is None:
+            return
+        matched = self._paths.find_match(
+            class_level=session.class_level,
+            delf_level=session.achieved_delf_level,
+            score=session.overall_score,
+        )
+        if matched is not None:
+            self._users.assign_learning_path(user.id, matched.id)
 
     def _require_session(self, user: User, session_id: UUID) -> DelfTestSession:
         session = self._delf_tests.get_session(session_id)
@@ -380,4 +578,34 @@ class DelfTestService:
             "status": session.status,
             "sections": sections,
             "finishedAt": session.finished_at.isoformat() if session.finished_at else None,
+        }
+
+    def _build_template_out(
+        self, template, *, include_questions: bool = False
+    ) -> dict[str, Any]:
+        sections: list[dict[str, Any]] = []
+        total_questions = 0
+        for category in QUIZ_CATEGORIES:
+            ids = template.question_ids_by_category.get(category, [])
+            total_questions += len(ids)
+            section: dict[str, Any] = {
+                "category": category,
+                "questionIds": ids,
+                "questionCount": len(ids),
+            }
+            if include_questions:
+                section["questions"] = self._sanitize_questions(ids)
+            sections.append(section)
+        return {
+            "id": str(template.id),
+            "name": template.name,
+            "description": template.description,
+            "classLevel": template.class_level,
+            "targetDelfLevel": template.target_delf_level,
+            "isActive": template.is_active,
+            "questionIdsByCategory": template.question_ids_by_category,
+            "sections": sections,
+            "totalQuestions": total_questions,
+            "createdAt": template.created_at.isoformat(),
+            "updatedAt": template.updated_at.isoformat(),
         }

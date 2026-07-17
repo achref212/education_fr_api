@@ -15,6 +15,7 @@ from app.api.dependencies import (
     get_learning_path_repo,
     get_lesson_repo,
     get_multiplayer_repo,
+    get_parcours_service,
     get_quiz_repo,
     get_school_repo,
     get_story_repo,
@@ -48,10 +49,15 @@ from app.api.schemas.delf_test import (
     DelfTestConfigUpdateIn,
     DelfTestResultsOut,
     DelfTestSessionAdminOut,
+    DelfTestTemplateCreateIn,
+    DelfTestTemplateOut,
+    DelfTestTemplateUpdateIn,
 )
 from app.api.schemas.parcours import (
     LearningPathCreateIn,
     LearningPathOut,
+    ParcoursOut,
+    ParcoursStepOut,
     LearningPathStepCreateIn,
     LearningPathStepOut,
     LearningPathStepUpdateIn,
@@ -60,8 +66,10 @@ from app.api.schemas.parcours import (
 from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
 from app.application.auth_service import AuthError, AuthService
 from app.application.delf_test_service import DelfTestError, DelfTestService
+from app.application.parcours_service import ParcoursError, ParcoursService
 from app.core.email_validation import InvalidEmailError, validate_real_email
 from app.core.security import hash_password
+from app.domain.constants import DELF_LEVELS
 from app.domain.entities import User
 from app.domain.ports import (
     IAdminProgressRepository,
@@ -281,10 +289,17 @@ def delete_lesson(
 
 @router.get("/quiz-questions", response_model=list[QuizQuestionOut])
 def list_quiz_questions(
+    category: str | None = None,
+    level: str | None = None,
     _admin: User = Depends(require_admin),
     quizzes: IQuizRepository = Depends(get_quiz_repo),
 ) -> list[QuizQuestionOut]:
-    return [QuizQuestionOut.from_domain(x) for x in quizzes.list_all()]
+    items = quizzes.list_all()
+    if category:
+        items = [x for x in items if x.category == category]
+    if level:
+        items = [x for x in items if x.level == level]
+    return [QuizQuestionOut.from_domain(x) for x in items]
 
 
 @router.post(
@@ -491,23 +506,141 @@ def list_multiplayer_rooms(
 # --- Learning paths ---
 
 
+def _learning_path_out(
+    path, paths: ILearningPathRepository
+) -> LearningPathOut:
+    return LearningPathOut(
+        id=path.id,
+        classLevel=path.class_level,
+        title=path.title,
+        description=path.description,
+        delfTargetLevel=path.delf_target_level,
+        isActive=path.is_active,
+        minScore=path.min_score,
+        maxScore=path.max_score,
+        isDefault=path.is_default,
+        stepCount=paths.count_steps(path.id),
+        assignedUsersCount=paths.count_assigned_users(path.id),
+        createdAt=path.created_at,
+    )
+
+
+def _validate_learning_path_payload(
+    paths: ILearningPathRepository,
+    *,
+    class_level: str,
+    delf_target_level: str,
+    min_score: int | None,
+    max_score: int | None,
+    is_default: bool,
+    exclude_id: UUID | None = None,
+) -> None:
+    if delf_target_level not in DELF_LEVELS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Objectif DELF invalide.",
+        )
+    if min_score is not None and max_score is not None and min_score > max_score:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le score minimum ne peut pas dépasser le score maximum.",
+        )
+    if is_default:
+        conflict = next(
+            (
+                path
+                for path in paths.list_all()
+                if path.class_level == class_level
+                and path.is_default
+                and path.id != exclude_id
+            ),
+            None,
+        )
+        if conflict is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Un parcours par défaut existe déjà pour {class_level}. "
+                    "Désactivez-le avant d'en définir un autre."
+                ),
+            )
+
+
+def _parcours_out(data: dict) -> ParcoursOut:
+    path = data["path"]
+    steps = data["steps"]
+    stats = data["stats"]
+    total_steps = len(steps)
+    completed_steps = sum(1 for s in steps if s["status"] == "completed")
+    completion_percent = (
+        round(completed_steps / total_steps * 100, 1) if total_steps else 0.0
+    )
+    return ParcoursOut(
+        pathId=path.id,
+        assignedPathId=path.id,
+        title=path.title,
+        description=path.description,
+        classLevel=path.class_level,
+        delfTargetLevel=path.delf_target_level,
+        totalXp=stats.total_xp,
+        currentStreak=stats.current_streak,
+        preferredDifficulty=stats.preferred_difficulty,
+        completionPercent=completion_percent,
+        steps=[
+            ParcoursStepOut(
+                id=s["step"].id,
+                stepOrder=s["step"].step_order,
+                stepType=s["step"].step_type,
+                title=s["step"].title,
+                xpReward=s["step"].xp_reward,
+                status=s["status"],
+                quizCategory=s["step"].quiz_category,
+                lessonId=s["step"].lesson_id,
+                storyId=s["step"].story_id,
+                requiredStepId=s["step"].required_step_id,
+                score=s["progress"].score if s["progress"] else None,
+                attempts=s["progress"].attempts if s["progress"] else 0,
+            )
+            for s in steps
+        ],
+    )
+
+
+def _validate_step_payload(
+    *,
+    step_type: str,
+    quiz_category: str | None,
+    lesson_id: UUID | None,
+    story_id: UUID | None,
+) -> None:
+    if step_type not in {"lesson", "quiz", "story"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Type d'étape invalide.",
+        )
+    if step_type == "lesson" and lesson_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Une étape leçon doit référencer une leçon.",
+        )
+    if step_type == "quiz" and not quiz_category:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Une étape quiz doit définir une catégorie.",
+        )
+    if step_type == "story" and story_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Une étape histoire doit référencer une histoire.",
+        )
+
+
 @router.get("/learning-paths", response_model=list[LearningPathOut])
 def list_learning_paths(
     _admin: User = Depends(require_admin),
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
 ) -> list[LearningPathOut]:
-    return [
-        LearningPathOut(
-            id=p.id,
-            classLevel=p.class_level,
-            title=p.title,
-            description=p.description,
-            delfTargetLevel=p.delf_target_level,
-            isActive=p.is_active,
-            createdAt=p.created_at,
-        )
-        for p in paths.list_all()
-    ]
+    return [_learning_path_out(p, paths) for p in paths.list_all()]
 
 
 @router.post(
@@ -521,34 +654,32 @@ def create_learning_path(
     _admin: User = Depends(require_admin),
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
 ) -> LearningPathOut:
-    if any(p.class_level == body.classLevel for p in paths.list_all()):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Un parcours existe déjà pour {body.classLevel}. Modifiez le parcours existant.",
-        )
+    _validate_learning_path_payload(
+        paths,
+        class_level=body.classLevel,
+        delf_target_level=body.delfTargetLevel,
+        min_score=body.minScore,
+        max_score=body.maxScore,
+        is_default=body.isDefault,
+    )
     try:
         path = paths.create_path(
             class_level=body.classLevel,
             title=body.title,
             delf_target_level=body.delfTargetLevel,
             description=body.description,
+            min_score=body.minScore,
+            max_score=body.maxScore,
+            is_default=body.isDefault,
         )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Un parcours existe déjà pour {body.classLevel}. Modifiez le parcours existant.",
+            detail="Impossible de créer ce parcours DELF.",
         ) from exc
-    return LearningPathOut(
-        id=path.id,
-        classLevel=path.class_level,
-        title=path.title,
-        description=path.description,
-        delfTargetLevel=path.delf_target_level,
-        isActive=path.is_active,
-        createdAt=path.created_at,
-    )
+    return _learning_path_out(path, paths)
 
 
 @router.put("/learning-paths/{path_id}", response_model=LearningPathOut)
@@ -559,25 +690,60 @@ def update_learning_path(
     _admin: User = Depends(require_admin),
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
 ) -> LearningPathOut:
+    current = paths.get(path_id)
+    if current is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    next_class_level = current.class_level
+    next_min = body.minScore if "minScore" in body.model_fields_set else current.min_score
+    next_max = body.maxScore if "maxScore" in body.model_fields_set else current.max_score
+    next_delf_target = (
+        body.delfTargetLevel
+        if "delfTargetLevel" in body.model_fields_set and body.delfTargetLevel is not None
+        else current.delf_target_level
+    )
+    next_default = (
+        body.isDefault if "isDefault" in body.model_fields_set else current.is_default
+    )
+    _validate_learning_path_payload(
+        paths,
+        class_level=next_class_level,
+        delf_target_level=next_delf_target,
+        min_score=next_min,
+        max_score=next_max,
+        is_default=bool(next_default),
+        exclude_id=path_id,
+    )
     updated = paths.update_path(
         path_id,
         title=body.title,
         description=body.description,
         delf_target_level=body.delfTargetLevel,
         is_active=body.isActive,
+        min_score=next_min,
+        max_score=next_max,
+        is_default=body.isDefault,
     )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     db.commit()
-    return LearningPathOut(
-        id=updated.id,
-        classLevel=updated.class_level,
-        title=updated.title,
-        description=updated.description,
-        delfTargetLevel=updated.delf_target_level,
-        isActive=updated.is_active,
-        createdAt=updated.created_at,
-    )
+    return _learning_path_out(updated, paths)
+
+
+@router.get("/users/{user_id}/parcours", response_model=ParcoursOut)
+def get_admin_user_parcours(
+    user_id: UUID,
+    _admin: User = Depends(require_admin),
+    users: IUserRepository = Depends(get_user_repo),
+    svc: ParcoursService = Depends(get_parcours_service),
+) -> ParcoursOut:
+    student = users.get_by_id(user_id)
+    if student is None or student.role != "user":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Élève introuvable")
+    try:
+        data = svc.get_parcours_for_user(student)
+    except ParcoursError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message) from exc
+    return _parcours_out(data)
 
 
 @router.delete("/learning-paths/{path_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -628,6 +794,14 @@ def create_learning_path_step(
     _admin: User = Depends(require_admin),
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
 ) -> LearningPathStepOut:
+    if paths.get(path_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _validate_step_payload(
+        step_type=body.stepType,
+        quiz_category=body.quizCategory,
+        lesson_id=body.lessonId,
+        story_id=body.storyId,
+    )
     step = paths.create_step(
         path_id=path_id,
         step_order=body.stepOrder,
@@ -670,6 +844,18 @@ def update_learning_path_step(
     existing = paths.get_step(step_id)
     if existing is None or existing.path_id != path_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    next_step_type = body.stepType if body.stepType is not None else existing.step_type
+    next_quiz_category = (
+        body.quizCategory if body.quizCategory is not None else existing.quiz_category
+    )
+    next_lesson_id = body.lessonId if body.lessonId is not None else existing.lesson_id
+    next_story_id = body.storyId if body.storyId is not None else existing.story_id
+    _validate_step_payload(
+        step_type=next_step_type,
+        quiz_category=next_quiz_category,
+        lesson_id=next_lesson_id,
+        story_id=next_story_id,
+    )
     updated = paths.update_step(
         step_id,
         step_order=body.stepOrder,
@@ -1027,6 +1213,110 @@ def admin_update_delf_test_config(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
         ) from exc
+
+
+@router.get("/delf-test-templates", response_model=list[DelfTestTemplateOut])
+def admin_list_delf_test_templates(
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> list[DelfTestTemplateOut]:
+    return [
+        DelfTestTemplateOut.model_validate(item)
+        for item in service.list_templates()
+    ]
+
+
+@router.get("/delf-test-templates/{template_id}", response_model=DelfTestTemplateOut)
+def admin_get_delf_test_template(
+    template_id: UUID,
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestTemplateOut:
+    try:
+        return DelfTestTemplateOut.model_validate(service.get_template(template_id))
+    except DelfTestError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message) from exc
+
+
+@router.post(
+    "/delf-test-templates",
+    response_model=DelfTestTemplateOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def admin_create_delf_test_template(
+    body: DelfTestTemplateCreateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestTemplateOut:
+    try:
+        result = service.create_template(
+            name=body.name,
+            description=body.description,
+            class_level=body.classLevel,
+            target_delf_level=body.targetDelfLevel,
+            is_active=body.isActive,
+            question_ids_by_category={
+                category: [str(qid) for qid in ids]
+                for category, ids in body.questionIdsByCategory.items()
+            },
+        )
+        db.commit()
+        return DelfTestTemplateOut.model_validate(result)
+    except DelfTestError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+
+
+@router.put("/delf-test-templates/{template_id}", response_model=DelfTestTemplateOut)
+def admin_update_delf_test_template(
+    template_id: UUID,
+    body: DelfTestTemplateUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestTemplateOut:
+    try:
+        questions = None
+        if body.questionIdsByCategory is not None:
+            questions = {
+                category: [str(qid) for qid in ids]
+                for category, ids in body.questionIdsByCategory.items()
+            }
+        result = service.update_template(
+            template_id,
+            name=body.name,
+            description=body.description if "description" in body.model_fields_set else None,
+            class_level=body.classLevel,
+            target_delf_level=body.targetDelfLevel,
+            is_active=body.isActive,
+            question_ids_by_category=questions,
+        )
+        db.commit()
+        return DelfTestTemplateOut.model_validate(result)
+    except DelfTestError as exc:
+        db.rollback()
+        status_code = status.HTTP_404_NOT_FOUND if "introuvable" in exc.message else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=exc.message) from exc
+
+
+@router.delete(
+    "/delf-test-templates/{template_id}",
+    response_model=DelfTestTemplateOut,
+)
+def admin_disable_delf_test_template(
+    template_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfTestService = Depends(get_delf_test_service),
+) -> DelfTestTemplateOut:
+    try:
+        result = service.disable_template(template_id)
+        db.commit()
+        return DelfTestTemplateOut.model_validate(result)
+    except DelfTestError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message) from exc
 
 
 # --- One-time admin bootstrap ---

@@ -51,6 +51,12 @@ class UserORM(Base):
         nullable=True,
         index=True,
     )
+    assigned_learning_path_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("learning_paths.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     progress: Mapped[UserProgressORM | None] = relationship(  # type: ignore[name-defined]
         "UserProgressORM", back_populates="user", uselist=False
@@ -82,4 +88,8 @@ class UserORM(Base):
     game_participations: Mapped[list[GameParticipantORM]] = relationship(  # type: ignore[name-defined]
         "GameParticipantORM",
         back_populates="user",
+    )
+    assigned_learning_path: Mapped[LearningPathORM | None] = relationship(  # type: ignore[name-defined]
+        "LearningPathORM",
+        foreign_keys=[assigned_learning_path_id],
     )

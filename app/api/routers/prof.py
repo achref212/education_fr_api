@@ -168,6 +168,7 @@ def get_student_parcours(
     )
     return ParcoursOut(
         pathId=path.id,
+        assignedPathId=path.id,
         title=path.title,
         description=path.description,
         classLevel=path.class_level,

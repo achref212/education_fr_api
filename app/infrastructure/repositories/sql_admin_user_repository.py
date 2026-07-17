@@ -100,6 +100,7 @@ class SqlAdminUserRepository(IAdminUserRepository):
         class_level: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        assigned_learning_path_id: UUID | None = None,
     ) -> User | None:
         row = self._session.get(UserORM, user_id)
         if row is None:
@@ -118,6 +119,8 @@ class SqlAdminUserRepository(IAdminUserRepository):
             row.phone = phone
         if date_of_birth is not None:
             row.date_of_birth = date_of_birth
+        if assigned_learning_path_id is not None:
+            row.assigned_learning_path_id = assigned_learning_path_id
         self._session.flush()
         return _to_user(row)
 
@@ -146,4 +149,5 @@ def _to_user(row: UserORM) -> User:
         teacher_school_id=row.teacher_school_id,
         phone=row.phone,
         date_of_birth=row.date_of_birth,
+        assigned_learning_path_id=row.assigned_learning_path_id,
     )
