@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import (
     get_admin_progress_repo,
     get_admin_user_repo,
+    get_ai_content_service,
     get_auth_service,
     get_contact_repo,
     get_delf_test_service,
@@ -42,6 +43,13 @@ from app.api.schemas.admin import (
     StoryUpdateIn,
     UserProgressItemOut,
 )
+from app.api.schemas.ai_content import (
+    AIContentGenerateIn,
+    AIDelfTestOut,
+    AILearningPathOut,
+    AILessonOut,
+    AIQuizQuestionsOut,
+)
 from app.api.schemas.multiplayer import GameCreateIn, GameOut, GameUpdateIn
 from app.api.schemas.delf_test import (
     DelfLevelThresholdIn,
@@ -65,6 +73,7 @@ from app.api.schemas.parcours import (
 )
 from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
 from app.application.auth_service import AuthError, AuthService
+from app.application.ai_content_service import AIContentError, AIContentService
 from app.application.delf_test_service import DelfTestError, DelfTestService
 from app.application.parcours_service import ParcoursError, ParcoursService
 from app.core.email_validation import InvalidEmailError, validate_real_email
@@ -87,6 +96,170 @@ from app.domain.ports import (
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _ai_error(exc: AIContentError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=exc.message,
+    )
+
+
+def _truncate(value: str, limit: int = 180) -> str:
+    compact = " ".join(value.split())
+    return compact[:limit] + ("…" if len(compact) > limit else "")
+
+
+def _quiz_reference_context(
+    body: AIContentGenerateIn,
+    quizzes: IQuizRepository,
+    lessons: ILessonRepository,
+) -> str:
+    examples = [
+        q for q in quizzes.list_all()
+        if q.level == body.classLevel and (body.category is None or q.category == body.category)
+    ][:6]
+    lesson_examples = [
+        l for l in lessons.list_all()
+        if l.level == body.classLevel and (body.category is None or l.category == body.category)
+    ][:3]
+    parts: list[str] = []
+    if examples:
+        parts.append(
+            "Questions existantes: "
+            + " | ".join(
+                f"{item.category}: {_truncate(item.question)}"
+                for item in examples
+            )
+        )
+    if lesson_examples:
+        parts.append(
+            "Leçons liées: "
+            + " | ".join(
+                f"{item.category}: {_truncate(item.title)} - {_truncate(item.content, 120)}"
+                for item in lesson_examples
+            )
+        )
+    return " ".join(parts)
+
+
+def _lesson_reference_context(
+    body: AIContentGenerateIn,
+    lessons: ILessonRepository,
+    quizzes: IQuizRepository,
+) -> str:
+    lesson_examples = [
+        l for l in lessons.list_all()
+        if l.level == body.classLevel and (body.category is None or l.category == body.category)
+    ][:4]
+    quiz_examples = [
+        q for q in quizzes.list_all()
+        if q.level == body.classLevel and (body.category is None or q.category == body.category)
+    ][:4]
+    parts: list[str] = []
+    if lesson_examples:
+        parts.append(
+            "Leçons existantes: "
+            + " | ".join(
+                f"{item.title}: {_truncate(item.content, 160)}"
+                for item in lesson_examples
+            )
+        )
+    if quiz_examples:
+        parts.append(
+            "Questions associées: "
+            + " | ".join(_truncate(item.question) for item in quiz_examples)
+        )
+    return " ".join(parts)
+
+
+def _path_reference_context(
+    body: AIContentGenerateIn,
+    paths: ILearningPathRepository,
+) -> str:
+    examples = [
+        p for p in paths.list_all()
+        if p.class_level == body.classLevel or p.delf_target_level == body.targetDelfLevel
+    ][:5]
+    if not examples:
+        return ""
+    return (
+        "Parcours existants: "
+        + " | ".join(
+            f"{item.title}: DELF {item.delf_target_level}, scores {item.min_score}-{item.max_score}, {_truncate(item.description or '', 120)}"
+            for item in examples
+        )
+    )
+
+
+# --- AI content drafts ---
+
+
+@router.post("/ai/generate-quiz-questions", response_model=AIQuizQuestionsOut)
+def generate_ai_quiz_questions(
+    body: AIContentGenerateIn,
+    _admin: User = Depends(require_admin),
+    service: AIContentService = Depends(get_ai_content_service),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+    lessons: ILessonRepository = Depends(get_lesson_repo),
+) -> AIQuizQuestionsOut:
+    try:
+        return service.generate_quiz_questions(
+            body,
+            reference_context=_quiz_reference_context(body, quizzes, lessons),
+        )
+    except AIContentError as exc:
+        raise _ai_error(exc) from exc
+
+
+@router.post("/ai/generate-delf-test", response_model=AIDelfTestOut)
+def generate_ai_delf_test(
+    body: AIContentGenerateIn,
+    _admin: User = Depends(require_admin),
+    service: AIContentService = Depends(get_ai_content_service),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+    lessons: ILessonRepository = Depends(get_lesson_repo),
+) -> AIDelfTestOut:
+    try:
+        return service.generate_delf_test(
+            body,
+            reference_context=_quiz_reference_context(body, quizzes, lessons),
+        )
+    except AIContentError as exc:
+        raise _ai_error(exc) from exc
+
+
+@router.post("/ai/generate-lesson", response_model=AILessonOut)
+def generate_ai_lesson(
+    body: AIContentGenerateIn,
+    _admin: User = Depends(require_admin),
+    service: AIContentService = Depends(get_ai_content_service),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+    lessons: ILessonRepository = Depends(get_lesson_repo),
+) -> AILessonOut:
+    try:
+        return service.generate_lesson(
+            body,
+            reference_context=_lesson_reference_context(body, lessons, quizzes),
+        )
+    except AIContentError as exc:
+        raise _ai_error(exc) from exc
+
+
+@router.post("/ai/generate-learning-path", response_model=AILearningPathOut)
+def generate_ai_learning_path(
+    body: AIContentGenerateIn,
+    _admin: User = Depends(require_admin),
+    service: AIContentService = Depends(get_ai_content_service),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+) -> AILearningPathOut:
+    try:
+        return service.generate_learning_path(
+            body,
+            reference_context=_path_reference_context(body, paths),
+        )
+    except AIContentError as exc:
+        raise _ai_error(exc) from exc
 
 
 @router.get("/stats", response_model=AdminStatsOut)

@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.application.auth_service import AuthService
+from app.application.ai_content_service import AIContentService
 from app.application.delf_test_service import DelfTestService
 from app.application.difficulty_service import DifficultyService
 from app.application.game_session_service import GameSessionService
@@ -125,6 +126,10 @@ def get_progress_service(
     progress: IProgressRepository = Depends(get_progress_repo),
 ) -> ProgressService:
     return ProgressService(progress)
+
+
+def get_ai_content_service() -> AIContentService:
+    return AIContentService.from_settings(get_settings())
 
 
 def get_current_user(

@@ -19,6 +19,21 @@ Backend FastAPI + PostgreSQL pour l’application [DELFy](../education_fr_app/).
 
 Pour activer l'envoi d'e-mails de réinitialisation, définir aussi `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`. Sans `SMTP_HOST`, le code est simplement affiché dans les logs (mode développement).
 
+Pour activer l'assistant IA DELF du dashboard admin, définir au minimum `HF_TOKEN`.
+Le fournisseur principal gratuit testé est Hugging Face avec `Qwen/Qwen2.5-7B-Instruct`.
+Le secours NVIDIA NIM testé est `meta/llama-3.1-8b-instruct` si `NVIDIA_API_KEY` est présent.
+
+```text
+AI_PROVIDER=hf
+AI_BACKUP_PROVIDER=nvidia
+AI_MODEL=Qwen/Qwen2.5-7B-Instruct
+AI_BACKUP_MODEL=meta/llama-3.1-8b-instruct
+HF_TOKEN=...
+NVIDIA_API_KEY=...
+AI_TIMEOUT_SECONDS=45
+AI_REPAIR_RETRIES=1
+```
+
 Exemple `DATABASE_URL` :
 
 ```text

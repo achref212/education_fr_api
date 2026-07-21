@@ -44,6 +44,23 @@ class Settings(BaseSettings):
         default="https://dashboard.delfy.app", validation_alias="DASHBOARD_URL"
     )
 
+    # AI content generation
+    ai_provider: str = Field(default="hf", validation_alias="AI_PROVIDER")
+    ai_backup_provider: str = Field(
+        default="nvidia", validation_alias="AI_BACKUP_PROVIDER"
+    )
+    hf_token: str = Field(default="", validation_alias="HF_TOKEN")
+    nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
+    ai_model: str = Field(
+        default="Qwen/Qwen2.5-7B-Instruct", validation_alias="AI_MODEL"
+    )
+    ai_backup_model: str = Field(
+        default="meta/llama-3.1-8b-instruct",
+        validation_alias="AI_BACKUP_MODEL",
+    )
+    ai_timeout_seconds: float = Field(default=45.0, validation_alias="AI_TIMEOUT_SECONDS")
+    ai_repair_retries: int = Field(default=1, validation_alias="AI_REPAIR_RETRIES")
+
 
 @lru_cache
 def get_settings() -> Settings:
