@@ -26,6 +26,7 @@ class UserORM(Base):
     class_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    profile_picture_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(
         String(32), nullable=False, default="user", server_default="user"
     )

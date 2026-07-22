@@ -54,6 +54,47 @@ def question_json() -> str:
     """
 
 
+def mock_exam_json(section_points: int = 25) -> str:
+    def section(order: int, section_type: str, points: list[int]) -> str:
+        return f"""
+        {{
+          "sectionOrder": {order},
+          "sectionType": "{section_type}",
+          "title": "{section_type}",
+          "durationMinutes": 15,
+          "points": {section_points},
+          "instructions": "Consigne originale.",
+          "audioUrl": null,
+          "rubric": {{"total": {section_points}}},
+          "metadata": {{}},
+          "items": [
+            {{"itemOrder": 1, "title": "Exercice 1", "prompt": "Réponds.", "points": {points[0]}, "content": {{}}, "answerKey": {{}}, "rubric": {{}}, "metadata": {{}}}},
+            {{"itemOrder": 2, "title": "Exercice 2", "prompt": "Réponds.", "points": {points[1]}, "content": {{}}, "answerKey": {{}}, "rubric": {{}}, "metadata": {{}}}},
+            {{"itemOrder": 3, "title": "Exercice 3", "prompt": "Réponds.", "points": {points[2]}, "content": {{}}, "answerKey": {{}}, "rubric": {{}}, "metadata": {{}}}}
+          ]
+        }}
+        """
+
+    return """
+    {"exam":{
+      "track":"Prime",
+      "level":"A1.1",
+      "title":"Examen blanc original",
+      "description":"Brouillon",
+      "status":"draft",
+      "sourceNotes":"Relecture professeur requise.",
+      "assets":[],
+      "sections":[
+    """ + ",".join(
+        [
+            section(1, "listening", [8, 8, 9]),
+            section(2, "reading", [8, 7, 10]),
+            section(3, "writing", [7, 8, 10]),
+            section(4, "speaking", [8, 8, 9]),
+        ]
+    ) + "]}}"
+
+
 def test_generates_normalized_quiz_questions() -> None:
     primary = StubProvider("hf", "microsoft/Phi-4-mini-instruct", [question_json()])
     service = AIContentService(primary)
@@ -176,3 +217,32 @@ def test_strips_letter_prefixes_from_generated_options() -> None:
     result = service.generate_quiz_questions(request())
 
     assert result.questions[0].options == ["est", "suis", "étais", "sont"]
+
+
+def test_generates_delf_mock_exam_draft() -> None:
+    primary = StubProvider("hf", "model", [mock_exam_json()])
+    service = AIContentService(primary)
+
+    result = service.generate_delf_mock_exam(request(targetDelfLevel="A1.1"))
+
+    assert result.exam.track == "Prime"
+    assert result.exam.level == "A1.1"
+    assert [section.sectionType for section in result.exam.sections] == [
+        "listening",
+        "reading",
+        "writing",
+        "speaking",
+    ]
+    assert sum(section.points for section in result.exam.sections) == 100
+
+
+def test_rejects_delf_mock_exam_with_wrong_section_points() -> None:
+    primary = StubProvider(
+        "hf",
+        "model",
+        [mock_exam_json(section_points=20), mock_exam_json(section_points=20)],
+    )
+    service = AIContentService(primary, repair_retries=0)
+
+    with pytest.raises(AIContentError):
+        service.generate_delf_mock_exam(request(targetDelfLevel="A1.1"))

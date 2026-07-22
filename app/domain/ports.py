@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.domain.entities import (
     ContactMessage,
+    DelfMockExam,
     DelfTestConfig,
     DelfTestSession,
     DelfTestTemplate,
@@ -13,6 +14,7 @@ from app.domain.entities import (
     LearningPath,
     LearningPathStep,
     Lesson,
+    MediaAsset,
     MultiplayerRoom,
     ProgressData,
     QuizQuestion,
@@ -61,6 +63,8 @@ class IUserRepository(Protocol):
         last_name: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        profile_picture_url: str | None = None,
+        clear_profile_picture_url: bool = False,
     ) -> User | None: ...
 
     def assign_learning_path(
@@ -122,6 +126,7 @@ class IAdminUserRepository(Protocol):
         phone: str | None = None,
         date_of_birth: date | None = None,
         must_change_password: bool = False,
+        profile_picture_url: str | None = None,
     ) -> User: ...
 
     def list_users(self) -> list[User]: ...
@@ -146,6 +151,8 @@ class IAdminUserRepository(Protocol):
         phone: str | None = None,
         date_of_birth: date | None = None,
         assigned_learning_path_id: UUID | None = None,
+        profile_picture_url: str | None = None,
+        clear_profile_picture_url: bool = False,
     ) -> User | None: ...
 
     def delete_user(self, user_id: UUID) -> bool: ...
@@ -164,6 +171,7 @@ class ISchoolRepository(Protocol):
         phone: str | None,
         director_name: str | None,
         must_change_password: bool = False,
+        logo_url: str | None = None,
     ) -> School: ...
 
     def change_password(self, school_id: UUID, password_hash: str) -> None: ...
@@ -185,6 +193,8 @@ class ISchoolRepository(Protocol):
         phone: str | None = None,
         director_name: str | None = None,
         is_active: bool | None = None,
+        logo_url: str | None = None,
+        clear_logo_url: bool = False,
     ) -> School | None: ...
 
     def delete(self, school_id: UUID) -> bool: ...
@@ -194,6 +204,33 @@ class ISchoolRepository(Protocol):
     def list_professors(self, school_id: UUID) -> list[User]: ...
 
     def count(self) -> int: ...
+
+
+class IMediaAssetRepository(Protocol):
+    def create(
+        self,
+        *,
+        owner_type: str | None,
+        owner_id: UUID | None,
+        asset_type: str,
+        title: str | None,
+        url: str,
+        storage_path: str | None,
+        mime_type: str | None,
+        size_bytes: int | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> MediaAsset: ...
+
+    def list_all(
+        self,
+        *,
+        owner_type: str | None = None,
+        owner_id: UUID | None = None,
+        asset_type: str | None = None,
+        is_active: bool | None = True,
+    ) -> list[MediaAsset]: ...
+
+    def archive(self, asset_id: UUID) -> MediaAsset | None: ...
 
 
 class IRecommendationRepository(Protocol):
@@ -597,3 +634,48 @@ class IDelfTestRepository(Protocol):
         is_active: bool | None = None,
         question_ids_by_category: dict[str, list[str]] | None = None,
     ) -> DelfTestTemplate | None: ...
+
+
+class IDelfMockExamRepository(Protocol):
+    def list_exams(
+        self,
+        *,
+        track: str | None = None,
+        level: str | None = None,
+        status: str | None = None,
+    ) -> list[DelfMockExam]: ...
+
+    def get_exam(self, exam_id: UUID) -> DelfMockExam | None: ...
+
+    def create_exam(
+        self,
+        *,
+        track: str,
+        level: str,
+        title: str,
+        description: str | None,
+        status: str,
+        total_duration_minutes: int,
+        total_points: int,
+        source_notes: str | None,
+        sections: list[dict[str, Any]],
+        assets: list[dict[str, Any]] | None = None,
+    ) -> DelfMockExam: ...
+
+    def update_exam(
+        self,
+        exam_id: UUID,
+        *,
+        track: str,
+        level: str,
+        title: str,
+        description: str | None,
+        status: str,
+        total_duration_minutes: int,
+        total_points: int,
+        source_notes: str | None,
+        sections: list[dict[str, Any]],
+        assets: list[dict[str, Any]] | None = None,
+    ) -> DelfMockExam | None: ...
+
+    def archive_exam(self, exam_id: UUID) -> DelfMockExam | None: ...

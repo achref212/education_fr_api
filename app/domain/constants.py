@@ -92,6 +92,29 @@ DELF_LEVELS: tuple[str, ...] = ("A1.1", "A1", "A2", "B1", "B2")
 
 DELFT_TEST_STATUSES: tuple[str, ...] = ("in_progress", "completed", "abandoned")
 
+DELF_MOCK_TRACKS: tuple[str, ...] = ("Prime", "Junior")
+
+DELF_MOCK_LEVELS_BY_TRACK: dict[str, tuple[str, ...]] = {
+    "Prime": ("A1.1", "A1", "A2"),
+    "Junior": ("A1", "A2", "B1", "B2"),
+}
+
+DELF_MOCK_SECTION_TYPES: tuple[str, ...] = (
+    "listening",
+    "reading",
+    "writing",
+    "speaking",
+)
+
+DELF_MOCK_SECTION_LABELS: dict[str, str] = {
+    "listening": "Compréhension de l'oral",
+    "reading": "Compréhension des écrits",
+    "writing": "Production écrite",
+    "speaking": "Production orale",
+}
+
+DELF_MOCK_STATUSES: tuple[str, ...] = ("draft", "published", "archived")
+
 DEFAULT_QUESTIONS_PER_CATEGORY: int = 5
 
 DEFAULT_DELF_LEVEL_THRESHOLDS: list[dict[str, int | str]] = [

@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.application.auth_service import AuthService
 from app.application.ai_content_service import AIContentService
+from app.application.delf_mock_exam_service import DelfMockExamService
 from app.application.delf_test_service import DelfTestService
 from app.application.difficulty_service import DifficultyService
 from app.application.game_session_service import GameSessionService
+from app.application.media_asset_service import MediaAssetService
 from app.application.parcours_service import ParcoursService
 from app.application.progress_service import ProgressService
 from app.application.student_stats_service import StudentStatsService
@@ -20,12 +22,14 @@ from app.domain.ports import (
     IAdminProgressRepository,
     IAdminUserRepository,
     IContactRepository,
+    IDelfMockExamRepository,
     IDelfTestRepository,
     IEmailSender,
     IGameRepository,
     ILearningPathRepository,
     ILessonRepository,
     IMultiplayerRepository,
+    IMediaAssetRepository,
     IProgressRepository,
     IQuizRepository,
     IRecommendationRepository,
@@ -46,12 +50,18 @@ from app.infrastructure.repositories.sql_admin_user_repository import (
     SqlAdminUserRepository,
 )
 from app.infrastructure.repositories.sql_contact_repository import SqlContactRepository
+from app.infrastructure.repositories.sql_delf_mock_exam_repository import (
+    SqlDelfMockExamRepository,
+)
 from app.infrastructure.repositories.sql_delf_test_repository import SqlDelfTestRepository
 from app.infrastructure.repositories.sql_game_repository import SqlGameRepository
 from app.infrastructure.repositories.sql_learning_path_repository import (
     SqlLearningPathRepository,
 )
 from app.infrastructure.repositories.sql_lesson_repository import SqlLessonRepository
+from app.infrastructure.repositories.sql_media_asset_repository import (
+    SqlMediaAssetRepository,
+)
 from app.infrastructure.repositories.sql_multiplayer_repository import (
     SqlMultiplayerRepository,
 )
@@ -320,6 +330,16 @@ def get_story_repo(db: Session = Depends(get_db)) -> IStoryRepository:
     return SqlStoryRepository(db)
 
 
+def get_media_asset_repo(db: Session = Depends(get_db)) -> IMediaAssetRepository:
+    return SqlMediaAssetRepository(db)
+
+
+def get_media_asset_service(
+    assets: IMediaAssetRepository = Depends(get_media_asset_repo),
+) -> MediaAssetService:
+    return MediaAssetService(assets, get_settings())
+
+
 def get_contact_repo(db: Session = Depends(get_db)) -> IContactRepository:
     return SqlContactRepository(db)
 
@@ -354,6 +374,12 @@ def get_game_repo(db: Session = Depends(get_db)) -> IGameRepository:
 
 def get_delf_test_repo(db: Session = Depends(get_db)) -> IDelfTestRepository:
     return SqlDelfTestRepository(db)
+
+
+def get_delf_mock_exam_repo(
+    db: Session = Depends(get_db),
+) -> IDelfMockExamRepository:
+    return SqlDelfMockExamRepository(db)
 
 
 def get_difficulty_service() -> DifficultyService:
@@ -418,3 +444,9 @@ def get_delf_test_service(
         paths=paths,
         users=users,
     )
+
+
+def get_delf_mock_exam_service(
+    exams: IDelfMockExamRepository = Depends(get_delf_mock_exam_repo),
+) -> DelfMockExamService:
+    return DelfMockExamService(exams=exams)

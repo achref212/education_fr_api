@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     )
     cors_origins: str = Field(default="*", validation_alias="CORS_ORIGINS")
 
+    # Local media uploads. Files live on disk; database rows store URLs/metadata.
+    media_root: str = Field(default="storage/media", validation_alias="MEDIA_ROOT")
+    media_url_prefix: str = Field(default="/media", validation_alias="MEDIA_URL_PREFIX")
+    max_image_mb: int = Field(default=5, validation_alias="MAX_IMAGE_MB")
+    max_audio_mb: int = Field(default=50, validation_alias="MAX_AUDIO_MB")
+    max_document_mb: int = Field(default=20, validation_alias="MAX_DOCUMENT_MB")
+
     # SMTP / email
     smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
     smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")

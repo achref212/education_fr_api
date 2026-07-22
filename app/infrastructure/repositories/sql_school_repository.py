@@ -26,6 +26,7 @@ class SqlSchoolRepository(ISchoolRepository):
         phone: str | None,
         director_name: str | None,
         must_change_password: bool = False,
+        logo_url: str | None = None,
     ) -> School:
         row = SchoolORM(
             name=name,
@@ -37,6 +38,7 @@ class SqlSchoolRepository(ISchoolRepository):
             postal_code=postal_code,
             phone=phone,
             director_name=director_name,
+            logo_url=logo_url,
             is_active=True,
             must_change_password=must_change_password,
             created_at=datetime.now(timezone.utc),
@@ -81,6 +83,8 @@ class SqlSchoolRepository(ISchoolRepository):
         phone: str | None = None,
         director_name: str | None = None,
         is_active: bool | None = None,
+        logo_url: str | None = None,
+        clear_logo_url: bool = False,
     ) -> School | None:
         row = self._session.get(SchoolORM, school_id)
         if row is None:
@@ -99,6 +103,10 @@ class SqlSchoolRepository(ISchoolRepository):
             row.director_name = director_name
         if is_active is not None:
             row.is_active = is_active
+        if clear_logo_url:
+            row.logo_url = None
+        elif logo_url is not None:
+            row.logo_url = logo_url
         self._session.flush()
         return _to_domain(row)
 
@@ -147,6 +155,7 @@ def _to_domain(row: SchoolORM) -> School:
         phone=row.phone,
         director_name=row.director_name,
         created_by_admin_id=row.created_by_admin_id,
+        logo_url=row.logo_url,
     )
 
 
@@ -167,4 +176,5 @@ def _to_user(row: UserORM) -> User:
         phone=row.phone,
         date_of_birth=row.date_of_birth,
         assigned_learning_path_id=row.assigned_learning_path_id,
+        profile_picture_url=row.profile_picture_url,
     )

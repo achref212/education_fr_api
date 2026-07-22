@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.infrastructure.db.base import Base
 from app.infrastructure.models import (  # noqa: F401
     contact_message as contact_message_model,
+    delf_mock_exam as delf_mock_exam_model,
     delf_test as delf_test_model,
     game as game_model,
     game_participant as game_participant_model,

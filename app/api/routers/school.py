@@ -47,6 +47,8 @@ def update_school_me(
             postal_code=body.postalCode,
             phone=body.phone,
             director_name=body.directorName,
+            logo_url=body.logoUrl,
+            clear_logo_url=("logoUrl" in body.model_fields_set and body.logoUrl is None),
         )
         db.commit()
     except AuthError as exc:

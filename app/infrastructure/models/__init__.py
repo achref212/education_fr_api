@@ -1,4 +1,10 @@
 from app.infrastructure.models.contact_message import ContactMessageORM
+from app.infrastructure.models.delf_mock_exam import (
+    DelfMockAssetORM,
+    DelfMockExamORM,
+    DelfMockItemORM,
+    DelfMockSectionORM,
+)
 from app.infrastructure.models.delf_test import (
     DelfTestConfigORM,
     DelfTestSessionORM,
@@ -10,6 +16,7 @@ from app.infrastructure.models.game_session import GameSessionORM
 from app.infrastructure.models.learning_path import LearningPathORM
 from app.infrastructure.models.learning_path_step import LearningPathStepORM
 from app.infrastructure.models.lesson import LessonORM
+from app.infrastructure.models.media_asset import MediaAssetORM
 from app.infrastructure.models.multiplayer_room import MultiplayerRoomORM
 from app.infrastructure.models.quiz_question import QuizQuestionORM
 from app.infrastructure.models.recommendation import RecommendationORM
@@ -22,6 +29,10 @@ from app.infrastructure.models.user_progress import UserProgressORM
 
 __all__ = [
     "ContactMessageORM",
+    "DelfMockAssetORM",
+    "DelfMockExamORM",
+    "DelfMockItemORM",
+    "DelfMockSectionORM",
     "DelfTestConfigORM",
     "DelfTestSessionORM",
     "DelfTestTemplateORM",
@@ -31,6 +42,7 @@ __all__ = [
     "LearningPathORM",
     "LearningPathStepORM",
     "LessonORM",
+    "MediaAssetORM",
     "MultiplayerRoomORM",
     "QuizQuestionORM",
     "RecommendationORM",

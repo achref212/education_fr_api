@@ -26,6 +26,7 @@ class SqlAdminUserRepository(IAdminUserRepository):
         phone: str | None = None,
         date_of_birth: date | None = None,
         must_change_password: bool = False,
+        profile_picture_url: str | None = None,
     ) -> User:
         row = UserORM(
             email=email.lower().strip(),
@@ -41,6 +42,7 @@ class SqlAdminUserRepository(IAdminUserRepository):
             class_level=class_level,
             phone=phone,
             date_of_birth=date_of_birth,
+            profile_picture_url=profile_picture_url,
         )
         self._session.add(row)
         self._session.flush()
@@ -101,6 +103,8 @@ class SqlAdminUserRepository(IAdminUserRepository):
         phone: str | None = None,
         date_of_birth: date | None = None,
         assigned_learning_path_id: UUID | None = None,
+        profile_picture_url: str | None = None,
+        clear_profile_picture_url: bool = False,
     ) -> User | None:
         row = self._session.get(UserORM, user_id)
         if row is None:
@@ -121,6 +125,10 @@ class SqlAdminUserRepository(IAdminUserRepository):
             row.date_of_birth = date_of_birth
         if assigned_learning_path_id is not None:
             row.assigned_learning_path_id = assigned_learning_path_id
+        if clear_profile_picture_url:
+            row.profile_picture_url = None
+        elif profile_picture_url is not None:
+            row.profile_picture_url = profile_picture_url
         self._session.flush()
         return _to_user(row)
 
@@ -150,4 +158,5 @@ def _to_user(row: UserORM) -> User:
         phone=row.phone,
         date_of_birth=row.date_of_birth,
         assigned_learning_path_id=row.assigned_learning_path_id,
+        profile_picture_url=row.profile_picture_url,
     )

@@ -221,6 +221,7 @@ class AuthService:
         postal_code: str | None = None,
         phone: str | None = None,
         director_name: str | None = None,
+        logo_url: str | None = None,
     ) -> tuple[School, str]:
         """Admin creates a school. Returns (school, plain_password). Sends welcome email."""
         if self._schools is None:
@@ -250,6 +251,7 @@ class AuthService:
             phone=phone,
             director_name=director_name,
             must_change_password=True,
+            logo_url=logo_url,
         )
 
         if self._email_sender:
@@ -415,6 +417,8 @@ class AuthService:
         last_name: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        profile_picture_url: str | None = None,
+        clear_profile_picture_url: bool = False,
     ) -> User:
         updated = self._users.update_profile(
             user.id,
@@ -422,6 +426,8 @@ class AuthService:
             last_name=last_name,
             phone=phone,
             date_of_birth=date_of_birth,
+            profile_picture_url=profile_picture_url,
+            clear_profile_picture_url=clear_profile_picture_url,
         )
         if updated is None:
             raise AuthError("account_not_found", "Compte introuvable")
@@ -437,6 +443,8 @@ class AuthService:
         postal_code: str | None = None,
         phone: str | None = None,
         director_name: str | None = None,
+        logo_url: str | None = None,
+        clear_logo_url: bool = False,
     ) -> School:
         if self._schools is None:
             raise AuthError("schools_unavailable", "Gestion des écoles non disponible")
@@ -448,6 +456,8 @@ class AuthService:
             postal_code=postal_code,
             phone=phone,
             director_name=director_name,
+            logo_url=logo_url,
+            clear_logo_url=clear_logo_url,
         )
         if updated is None:
             raise AuthError("account_not_found", "Compte école introuvable")

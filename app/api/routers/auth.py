@@ -207,6 +207,11 @@ def update_me(
             last_name=body.lastName,
             phone=body.phone,
             date_of_birth=body.dateOfBirth,
+            profile_picture_url=body.profilePictureUrl,
+            clear_profile_picture_url=(
+                "profilePictureUrl" in body.model_fields_set
+                and body.profilePictureUrl is None
+            ),
         )
         db.commit()
     except AuthError as exc:

@@ -93,6 +93,8 @@ class SqlUserRepository(IUserRepository):
         last_name: str | None = None,
         phone: str | None = None,
         date_of_birth: date | None = None,
+        profile_picture_url: str | None = None,
+        clear_profile_picture_url: bool = False,
     ) -> User | None:
         row = self._session.get(UserORM, user_id)
         if row is None:
@@ -105,6 +107,10 @@ class SqlUserRepository(IUserRepository):
             row.phone = phone
         if date_of_birth is not None:
             row.date_of_birth = date_of_birth
+        if clear_profile_picture_url:
+            row.profile_picture_url = None
+        elif profile_picture_url is not None:
+            row.profile_picture_url = profile_picture_url
         self._session.flush()
         return _to_domain_user(row)
 
@@ -136,4 +142,5 @@ def _to_domain_user(row: UserORM) -> User:
         phone=row.phone,
         date_of_birth=row.date_of_birth,
         assigned_learning_path_id=row.assigned_learning_path_id,
+        profile_picture_url=row.profile_picture_url,
     )

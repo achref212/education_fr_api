@@ -38,6 +38,7 @@ class UserOut(BaseModel):
     phone: str | None = None
     dateOfBirth: date | None = None
     assignedLearningPathId: UUID | None = None
+    profilePictureUrl: str | None = None
 
     @classmethod
     def from_domain(cls, u: User) -> "UserOut":
@@ -57,6 +58,7 @@ class UserOut(BaseModel):
             phone=u.phone,
             dateOfBirth=u.date_of_birth,
             assignedLearningPathId=u.assigned_learning_path_id,
+            profilePictureUrl=u.profile_picture_url,
         )
 
 
@@ -116,6 +118,7 @@ class ProfileUpdateIn(BaseModel):
     lastName: str | None = Field(default=None, min_length=1, max_length=255)
     phone: str | None = None
     dateOfBirth: date | None = None
+    profilePictureUrl: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 

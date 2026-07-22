@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,6 +60,56 @@ class AIDelfTestDraft(BaseModel):
     questionsByCategory: dict[str, list[AIQuizQuestionDraft]]
 
 
+class AIDelfMockAssetDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    assetType: str
+    title: str
+    url: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIDelfMockItemDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    itemOrder: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=180)
+    prompt: str = Field(min_length=1)
+    points: int = Field(ge=1, le=25)
+    content: dict[str, Any] = Field(default_factory=dict)
+    answerKey: dict[str, Any] = Field(default_factory=dict)
+    rubric: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIDelfMockSectionDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    sectionOrder: int = Field(ge=1)
+    sectionType: str
+    title: str = Field(min_length=1, max_length=180)
+    durationMinutes: int = Field(ge=1)
+    points: int = Field(default=25, ge=1, le=25)
+    instructions: str = Field(min_length=1)
+    audioUrl: str | None = None
+    rubric: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    items: list[AIDelfMockItemDraft] = Field(min_length=1)
+
+
+class AIDelfMockExamDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    track: str
+    level: str
+    title: str = Field(min_length=1, max_length=180)
+    description: str | None = None
+    status: str = "draft"
+    sourceNotes: str | None = None
+    sections: list[AIDelfMockSectionDraft]
+    assets: list[AIDelfMockAssetDraft] = Field(default_factory=list)
+
+
 class AIProviderInfo(BaseModel):
     provider: str
     model: str
@@ -84,3 +134,8 @@ class AILearningPathOut(BaseModel):
 class AIDelfTestOut(BaseModel):
     provider: AIProviderInfo
     test: AIDelfTestDraft
+
+
+class AIDelfMockExamOut(BaseModel):
+    provider: AIProviderInfo
+    exam: AIDelfMockExamDraft

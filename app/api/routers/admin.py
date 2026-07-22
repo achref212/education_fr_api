@@ -11,6 +11,7 @@ from app.api.dependencies import (
     get_ai_content_service,
     get_auth_service,
     get_contact_repo,
+    get_delf_mock_exam_service,
     get_delf_test_service,
     get_game_repo,
     get_learning_path_repo,
@@ -45,10 +46,16 @@ from app.api.schemas.admin import (
 )
 from app.api.schemas.ai_content import (
     AIContentGenerateIn,
+    AIDelfMockExamOut,
     AIDelfTestOut,
     AILearningPathOut,
     AILessonOut,
     AIQuizQuestionsOut,
+)
+from app.api.schemas.delf_mock_exam import (
+    DelfMockExamCreateIn,
+    DelfMockExamOut,
+    DelfMockExamUpdateIn,
 )
 from app.api.schemas.multiplayer import GameCreateIn, GameOut, GameUpdateIn
 from app.api.schemas.delf_test import (
@@ -74,6 +81,10 @@ from app.api.schemas.parcours import (
 from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
 from app.application.auth_service import AuthError, AuthService
 from app.application.ai_content_service import AIContentError, AIContentService
+from app.application.delf_mock_exam_service import (
+    DelfMockExamError,
+    DelfMockExamService,
+)
 from app.application.delf_test_service import DelfTestError, DelfTestService
 from app.application.parcours_service import ParcoursError, ParcoursService
 from app.core.email_validation import InvalidEmailError, validate_real_email
@@ -103,6 +114,10 @@ def _ai_error(exc: AIContentError) -> HTTPException:
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=exc.message,
     )
+
+
+def _mock_exam_error(exc: DelfMockExamError, status_code: int = status.HTTP_400_BAD_REQUEST) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=exc.message)
 
 
 def _truncate(value: str, limit: int = 180) -> str:
@@ -229,6 +244,23 @@ def generate_ai_delf_test(
         raise _ai_error(exc) from exc
 
 
+@router.post("/ai/generate-delf-mock-exam", response_model=AIDelfMockExamOut)
+def generate_ai_delf_mock_exam(
+    body: AIContentGenerateIn,
+    _admin: User = Depends(require_admin),
+    service: AIContentService = Depends(get_ai_content_service),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+    lessons: ILessonRepository = Depends(get_lesson_repo),
+) -> AIDelfMockExamOut:
+    try:
+        return service.generate_delf_mock_exam(
+            body,
+            reference_context=_quiz_reference_context(body, quizzes, lessons),
+        )
+    except AIContentError as exc:
+        raise _ai_error(exc) from exc
+
+
 @router.post("/ai/generate-lesson", response_model=AILessonOut)
 def generate_ai_lesson(
     body: AIContentGenerateIn,
@@ -333,6 +365,7 @@ def create_user(
             phone=body.phone,
             date_of_birth=body.dateOfBirth,
             class_level=body.classLevel,
+            profile_picture_url=body.profilePictureUrl,
         )
         db.commit()
     except IntegrityError as exc:
@@ -370,6 +403,11 @@ def update_user(
         class_level=body.classLevel,
         phone=body.phone,
         date_of_birth=body.dateOfBirth,
+        profile_picture_url=body.profilePictureUrl,
+        clear_profile_picture_url=(
+            "profilePictureUrl" in body.model_fields_set
+            and body.profilePictureUrl is None
+        ),
     )
     if u is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -1193,6 +1231,7 @@ def create_school(
             postal_code=body.postalCode,
             phone=body.phone,
             director_name=body.directorName,
+            logo_url=body.logoUrl,
         )
         db.commit()
     except AuthError as exc:
@@ -1246,6 +1285,8 @@ def update_school(
         phone=body.phone,
         director_name=body.directorName,
         is_active=body.isActive,
+        logo_url=body.logoUrl,
+        clear_logo_url=("logoUrl" in body.model_fields_set and body.logoUrl is None),
     )
     if school is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
@@ -1287,6 +1328,89 @@ def list_school_professors(
     if school is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="École introuvable")
     return [AdminUserOut.from_domain(u) for u in schools.list_professors(school_id)]
+
+
+# --- DELF mock exams ---
+
+
+@router.get("/delf-mock-exams", response_model=list[DelfMockExamOut])
+def admin_list_delf_mock_exams(
+    track: str | None = None,
+    level: str | None = None,
+    status: str | None = None,
+    _admin: User = Depends(require_admin),
+    service: DelfMockExamService = Depends(get_delf_mock_exam_service),
+) -> list[DelfMockExamOut]:
+    return [
+        DelfMockExamOut.model_validate(item)
+        for item in service.list_exams(track=track, level=level, status=status)
+    ]
+
+
+@router.get("/delf-mock-exams/{exam_id}", response_model=DelfMockExamOut)
+def admin_get_delf_mock_exam(
+    exam_id: UUID,
+    _admin: User = Depends(require_admin),
+    service: DelfMockExamService = Depends(get_delf_mock_exam_service),
+) -> DelfMockExamOut:
+    try:
+        return DelfMockExamOut.model_validate(service.get_exam(exam_id))
+    except DelfMockExamError as exc:
+        raise _mock_exam_error(exc, status.HTTP_404_NOT_FOUND) from exc
+
+
+@router.post(
+    "/delf-mock-exams",
+    response_model=DelfMockExamOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def admin_create_delf_mock_exam(
+    body: DelfMockExamCreateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfMockExamService = Depends(get_delf_mock_exam_service),
+) -> DelfMockExamOut:
+    try:
+        result = service.create_exam(body.model_dump(by_alias=True))
+        db.commit()
+        return DelfMockExamOut.model_validate(result)
+    except DelfMockExamError as exc:
+        db.rollback()
+        raise _mock_exam_error(exc) from exc
+
+
+@router.put("/delf-mock-exams/{exam_id}", response_model=DelfMockExamOut)
+def admin_update_delf_mock_exam(
+    exam_id: UUID,
+    body: DelfMockExamUpdateIn,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfMockExamService = Depends(get_delf_mock_exam_service),
+) -> DelfMockExamOut:
+    try:
+        result = service.update_exam(exam_id, body.model_dump(by_alias=True))
+        db.commit()
+        return DelfMockExamOut.model_validate(result)
+    except DelfMockExamError as exc:
+        db.rollback()
+        status_code = status.HTTP_404_NOT_FOUND if "introuvable" in exc.message else status.HTTP_400_BAD_REQUEST
+        raise _mock_exam_error(exc, status_code) from exc
+
+
+@router.delete("/delf-mock-exams/{exam_id}", response_model=DelfMockExamOut)
+def admin_archive_delf_mock_exam(
+    exam_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+    service: DelfMockExamService = Depends(get_delf_mock_exam_service),
+) -> DelfMockExamOut:
+    try:
+        result = service.archive_exam(exam_id)
+        db.commit()
+        return DelfMockExamOut.model_validate(result)
+    except DelfMockExamError as exc:
+        db.rollback()
+        raise _mock_exam_error(exc, status.HTTP_404_NOT_FOUND) from exc
 
 
 # --- DELF level tests ---

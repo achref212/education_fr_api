@@ -12,6 +12,11 @@ from app.api.schemas.ai_content import (
     AIContentGenerateIn,
     AIDelfTestDraft,
     AIDelfTestOut,
+    AIDelfMockAssetDraft,
+    AIDelfMockExamDraft,
+    AIDelfMockExamOut,
+    AIDelfMockItemDraft,
+    AIDelfMockSectionDraft,
     AILearningPathDraft,
     AILearningPathOut,
     AILessonDraft,
@@ -24,6 +29,9 @@ from app.core.config import Settings
 from app.domain.constants import (
     CLASS_LEVELS,
     DELF_LEVELS,
+    DELF_MOCK_LEVELS_BY_TRACK,
+    DELF_MOCK_SECTION_LABELS,
+    DELF_MOCK_SECTION_TYPES,
     LESSON_CATEGORIES,
     QUIZ_CATEGORIES,
 )
@@ -260,6 +268,57 @@ class AIContentService:
         )
         return AIDelfTestOut(provider=provider, test=draft)
 
+    def generate_delf_mock_exam(
+        self,
+        body: AIContentGenerateIn,
+        reference_context: str | None = None,
+    ) -> AIDelfMockExamOut:
+        self._validate_base(body, require_quiz_category=False)
+        track = self._mock_track_for(body)
+        if body.targetDelfLevel not in DELF_MOCK_LEVELS_BY_TRACK[track]:
+            raise AIContentError(f"Niveau DELF invalide pour DELF {track}.")
+        section_contract = (
+            "Retourne uniquement JSON: {\"exam\":{track,level,title,description,status,"
+            "sourceNotes,sections,assets}}. sections contient exactement 4 objets dans cet ordre: "
+            "listening, reading, writing, speaking. Chaque section suit {sectionOrder,sectionType,"
+            "title,durationMinutes,points,instructions,audioUrl,rubric,metadata,items}. "
+            "Chaque section vaut exactement 25 points. Chaque item suit {itemOrder,title,prompt,"
+            "points,content,answerKey,rubric,metadata}. Les points des items totalisent 25 par section. "
+            "assets est une liste, vide si aucune ressource n'est nécessaire."
+        )
+        prompt = self._prompt(
+            body,
+            (
+                "Génère un examen blanc DELF officiel en forme et en fond, mais entièrement original. "
+                "Ne copie aucun sujet, texte, dialogue, image ou correction officielle. "
+                f"Déclinaison: DELF {track}. Niveau: {body.targetDelfLevel}. "
+                "Compétences obligatoires: compréhension de l'oral, compréhension des écrits, "
+                "production écrite, production orale. Total obligatoire: 100 points. "
+                "Ajoute dans sourceNotes une mention indiquant que le brouillon doit être relu par un professeur. "
+                "Pour listening, crée des scripts audio originaux dans content.transcripts et laisse audioUrl null. "
+                "Pour writing et speaking, fournis des grilles de correction utilisables dans rubric. "
+                "Inclure les règles: seuil de réussite 50/100 et note minimale 5/25 par épreuve. "
+                f"{section_contract}"
+            ),
+            reference_context=reference_context,
+        )
+        next_prompt = prompt
+        provider: AIProviderInfo | None = None
+        last_error: AIContentError | None = None
+        for _ in range(self._repair_retries + 2):
+            data, provider = self._generate_json(next_prompt, ["exam"])
+            try:
+                draft = self._normalize_mock_exam(data["exam"], body, track)
+                return AIDelfMockExamOut(provider=provider, exam=draft)
+            except (AIContentError, ValidationError) as exc:
+                last_error = AIContentError(str(exc))
+                next_prompt = (
+                    prompt
+                    + f" La réponse précédente est refusée: {last_error.message}. "
+                    "Régénère entièrement l'examen blanc en corrigeant ce problème."
+                )
+        raise last_error or AIContentError("Aucun examen blanc DELF valide généré.")
+
     def generate_lesson(
         self,
         body: AIContentGenerateIn,
@@ -330,6 +389,93 @@ class AIContentService:
             raise AIContentError("Catégorie de quiz invalide.")
         if require_lesson_category and body.category not in LESSON_CATEGORIES:
             raise AIContentError("Catégorie de leçon invalide.")
+
+    def _mock_track_for(self, body: AIContentGenerateIn) -> str:
+        if body.targetDelfLevel == "A1.1":
+            return "Prime"
+        if body.classLevel in CLASS_LEVELS[:5]:
+            return "Prime"
+        return "Junior"
+
+    def _normalize_mock_exam(
+        self,
+        raw: dict[str, Any],
+        body: AIContentGenerateIn,
+        track: str,
+    ) -> AIDelfMockExamDraft:
+        sections = raw.get("sections")
+        if not isinstance(sections, list) or len(sections) != 4:
+            raise AIContentError("L'examen blanc doit contenir exactement 4 épreuves.")
+        normalized_sections: list[AIDelfMockSectionDraft] = []
+        seen: set[str] = set()
+        for index, section in enumerate(sections, start=1):
+            section_type = str(section.get("sectionType", "")).strip()
+            if section_type not in DELF_MOCK_SECTION_TYPES:
+                raise AIContentError("Une épreuve a un type invalide.")
+            if section_type in seen:
+                raise AIContentError("Une épreuve DELF est dupliquée.")
+            seen.add(section_type)
+            points = int(section.get("points") or 0)
+            if points != 25:
+                raise AIContentError("Chaque épreuve DELF doit valoir 25 points.")
+            items = section.get("items") or []
+            if not items:
+                raise AIContentError("Chaque épreuve doit contenir au moins un exercice.")
+            normalized_items = [
+                AIDelfMockItemDraft(
+                    itemOrder=item_index,
+                    title=str(item.get("title") or f"Exercice {item_index}").strip(),
+                    prompt=str(item.get("prompt") or "").strip(),
+                    points=int(item.get("points") or 0),
+                    content=dict(item.get("content") or {}),
+                    answerKey=dict(item.get("answerKey") or {}),
+                    rubric=dict(item.get("rubric") or {}),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+                for item_index, item in enumerate(items, start=1)
+            ]
+            if sum(item.points for item in normalized_items) != 25:
+                raise AIContentError("Les exercices d'une épreuve doivent totaliser 25 points.")
+            if any(not item.prompt for item in normalized_items):
+                raise AIContentError("Chaque exercice doit contenir une consigne.")
+            normalized_sections.append(
+                AIDelfMockSectionDraft(
+                    sectionOrder=index,
+                    sectionType=section_type,
+                    title=str(section.get("title") or DELF_MOCK_SECTION_LABELS[section_type]).strip(),
+                    durationMinutes=int(section.get("durationMinutes") or 1),
+                    points=points,
+                    instructions=str(section.get("instructions") or "").strip(),
+                    audioUrl=section.get("audioUrl"),
+                    rubric=dict(section.get("rubric") or {}),
+                    metadata=dict(section.get("metadata") or {}),
+                    items=normalized_items,
+                )
+            )
+        missing = [section for section in DELF_MOCK_SECTION_TYPES if section not in seen]
+        if missing:
+            raise AIContentError("Des épreuves DELF obligatoires sont manquantes.")
+        assets = [
+            AIDelfMockAssetDraft(
+                assetType=str(asset.get("assetType") or "link").strip(),
+                title=str(asset.get("title") or "Ressource").strip(),
+                url=str(asset.get("url") or "").strip(),
+                metadata=dict(asset.get("metadata") or {}),
+            )
+            for asset in raw.get("assets", [])
+            if str(asset.get("url") or "").strip()
+        ]
+        return AIDelfMockExamDraft(
+            track=track,
+            level=body.targetDelfLevel,
+            title=str(raw.get("title") or f"Examen blanc DELF {track} {body.targetDelfLevel}").strip(),
+            description=raw.get("description") or "Brouillon d'examen blanc généré par l'assistant IA.",
+            status="draft",
+            sourceNotes=raw.get("sourceNotes")
+            or "Contenu original généré pour entraînement. Relecture professeur obligatoire avant publication.",
+            sections=normalized_sections,
+            assets=assets,
+        )
 
     def _prompt(
         self,

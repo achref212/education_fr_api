@@ -21,6 +21,7 @@ class SchoolORM(Base):
     city: Mapped[str | None] = mapped_column(String(255), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     email: Mapped[str] = mapped_column(
         String(320), unique=True, index=True, nullable=False
     )

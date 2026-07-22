@@ -21,6 +21,7 @@ class User:
     phone: str | None = None
     date_of_birth: date | None = None
     assigned_learning_path_id: UUID | None = None
+    profile_picture_url: str | None = None
 
 
 @dataclass
@@ -43,12 +44,30 @@ class School:
     phone: str | None = None
     director_name: str | None = None
     created_by_admin_id: UUID | None = None
+    logo_url: str | None = None
 
 
 @dataclass
 class SchoolWithHash:
     school: School
     password_hash: str
+
+
+@dataclass
+class MediaAsset:
+    id: UUID
+    owner_type: str | None
+    owner_id: UUID | None
+    asset_type: str
+    title: str | None
+    url: str
+    storage_path: str | None
+    mime_type: str | None
+    size_bytes: int | None
+    metadata: dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass
@@ -297,3 +316,61 @@ class DelfTestTemplate:
     question_ids_by_category: dict[str, list[str]]
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass
+class DelfMockItem:
+    id: UUID
+    section_id: UUID
+    item_order: int
+    title: str
+    prompt: str
+    points: int
+    content: dict[str, Any]
+    answer_key: dict[str, Any]
+    rubric: dict[str, Any]
+    metadata: dict[str, Any]
+
+
+@dataclass
+class DelfMockSection:
+    id: UUID
+    exam_id: UUID
+    section_order: int
+    section_type: str
+    title: str
+    duration_minutes: int
+    points: int
+    instructions: str
+    audio_url: str | None
+    rubric: dict[str, Any]
+    metadata: dict[str, Any]
+    items: list[DelfMockItem] = field(default_factory=list)
+
+
+@dataclass
+class DelfMockAsset:
+    id: UUID
+    exam_id: UUID
+    asset_type: str
+    title: str
+    url: str
+    metadata: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass
+class DelfMockExam:
+    id: UUID
+    track: str
+    level: str
+    title: str
+    description: str | None
+    status: str
+    total_duration_minutes: int
+    total_points: int
+    source_notes: str | None
+    created_at: datetime
+    updated_at: datetime
+    sections: list[DelfMockSection] = field(default_factory=list)
+    assets: list[DelfMockAsset] = field(default_factory=list)

@@ -16,6 +16,7 @@ class SchoolCreate(BaseModel):
     postalCode: str | None = Field(default=None, alias="postalCode")
     phone: str | None = None
     directorName: str | None = Field(default=None, alias="directorName")
+    logoUrl: str | None = None
 
 
 class SchoolProfileUpdateIn(BaseModel):
@@ -27,6 +28,7 @@ class SchoolProfileUpdateIn(BaseModel):
     postalCode: str | None = Field(default=None, alias="postalCode")
     phone: str | None = None
     directorName: str | None = Field(default=None, alias="directorName")
+    logoUrl: str | None = None
 
 
 class SchoolUpdate(BaseModel):
@@ -39,6 +41,7 @@ class SchoolUpdate(BaseModel):
     phone: str | None = None
     directorName: str | None = Field(default=None, alias="directorName")
     isActive: bool | None = Field(default=None, alias="isActive")
+    logoUrl: str | None = None
 
 
 class SchoolPublicOut(BaseModel):
@@ -70,6 +73,7 @@ class SchoolOut(BaseModel):
     phone: str | None = None
     directorName: str | None = None
     createdByAdminId: UUID | None = None
+    logoUrl: str | None = None
 
     @classmethod
     def from_domain(cls, s: School) -> "SchoolOut":
@@ -86,6 +90,7 @@ class SchoolOut(BaseModel):
             phone=s.phone,
             directorName=s.director_name,
             createdByAdminId=s.created_by_admin_id,
+            logoUrl=s.logo_url,
         )
 
 

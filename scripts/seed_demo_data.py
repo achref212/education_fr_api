@@ -808,6 +808,12 @@ def seed_quiz_questions_if_needed() -> None:
     seed_quiz()
 
 
+def seed_delf_mock_exams_if_needed() -> None:
+    from scripts.seed_delf_mock_exams import seed as seed_mock_exams
+
+    seed_mock_exams()
+
+
 def print_summary(session) -> None:
     tables = [
         "users",
@@ -822,6 +828,9 @@ def print_summary(session) -> None:
         "game_sessions",
         "game_participants",
         "delf_test_sessions",
+        "delf_mock_exams",
+        "delf_mock_sections",
+        "delf_mock_items",
         "contact_messages",
         "recommendations",
         "student_stats",
@@ -846,6 +855,7 @@ def main() -> None:
         seed_stories(session)
         session.commit()
         seed_quiz_questions_if_needed()
+        seed_delf_mock_exams_if_needed()
         seed_games(session)
         seed_learning_paths(session)
         school, students = seed_demo_school_and_users(session)
