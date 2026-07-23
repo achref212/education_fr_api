@@ -117,3 +117,32 @@ class DelfMockAssetORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     exam: Mapped[DelfMockExamORM] = relationship("DelfMockExamORM", back_populates="assets")  # type: ignore[name-defined]
+
+
+class DelfMockAttemptORM(Base):
+    __tablename__ = "delf_mock_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    exam_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("delf_mock_exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_progress")
+    answers: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    section_scores: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    overall_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approximate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

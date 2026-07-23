@@ -62,8 +62,16 @@ class ParcoursSummaryOut(BaseModel):
     nextStepTitle: str | None = None
 
 
+class StepAnswerIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    questionId: UUID
+    selectedIndex: int = Field(ge=0)
+
+
 class StepCompleteIn(BaseModel):
     score: int = Field(ge=0, le=100)
+    answers: list[StepAnswerIn] | None = None
 
 
 class StepCompleteOut(BaseModel):

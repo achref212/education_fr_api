@@ -5,6 +5,7 @@ from uuid import UUID
 from app.domain.entities import (
     ContactMessage,
     DelfMockExam,
+    DelfMockAttempt,
     DelfTestConfig,
     DelfTestSession,
     DelfTestTemplate,
@@ -23,6 +24,8 @@ from app.domain.entities import (
     SchoolWithHash,
     Story,
     StudentStats,
+    StudentLeaderboardEntry,
+    StudentReviewItem,
     StudentStepProgress,
     User,
     UserProgressRow,
@@ -513,6 +516,49 @@ class IStudentProgressRepository(Protocol):
         self, progress: StudentStepProgress
     ) -> StudentStepProgress: ...
 
+    def list_leaderboard(
+        self,
+        *,
+        school_id: UUID | None = None,
+        class_level: str | None = None,
+    ) -> list[StudentLeaderboardEntry]: ...
+
+
+class IStudentReviewRepository(Protocol):
+    def upsert_wrong_answer(
+        self,
+        *,
+        user_id: UUID,
+        source_type: str,
+        source_id: str | None,
+        question_id: str | None,
+        category: str,
+        question: str,
+        options: list[Any],
+        selected_index: int | None,
+        correct_index: int | None,
+        explanation: str | None,
+    ) -> StudentReviewItem: ...
+
+    def list_for_user(
+        self,
+        user_id: UUID,
+        *,
+        status: str | None = None,
+    ) -> list[StudentReviewItem]: ...
+
+    def get_for_user(
+        self,
+        user_id: UUID,
+        item_id: UUID,
+    ) -> StudentReviewItem | None: ...
+
+    def mark_completed(
+        self,
+        user_id: UUID,
+        item_id: UUID,
+    ) -> StudentReviewItem | None: ...
+
 
 class IGameRepository(Protocol):
     def list_games(self, active_only: bool = True) -> list[Game]: ...
@@ -703,3 +749,33 @@ class IDelfMockExamRepository(Protocol):
     ) -> DelfMockExam | None: ...
 
     def archive_exam(self, exam_id: UUID) -> DelfMockExam | None: ...
+
+
+class IDelfMockAttemptRepository(Protocol):
+    def create_attempt(
+        self,
+        *,
+        user_id: UUID,
+        exam_id: UUID,
+    ) -> DelfMockAttempt: ...
+
+    def get_attempt(self, attempt_id: UUID) -> DelfMockAttempt | None: ...
+
+    def get_active_attempt(
+        self,
+        *,
+        user_id: UUID,
+        exam_id: UUID,
+    ) -> DelfMockAttempt | None: ...
+
+    def update_attempt(
+        self,
+        attempt_id: UUID,
+        *,
+        status: str | None = None,
+        answers: list[dict[str, Any]] | None = None,
+        section_scores: dict[str, int] | None = None,
+        overall_score: int | None = None,
+        approximate: bool | None = None,
+        finished_at: datetime | None = None,
+    ) -> DelfMockAttempt | None: ...

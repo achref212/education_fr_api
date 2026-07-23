@@ -11,6 +11,7 @@ from app.api.routers.multiplayer import router as multiplayer_router
 from app.api.routers.parcours import router as parcours_router
 from app.api.routers.prof import router as prof_router
 from app.api.routers.school import router as school_router
+from app.api.routers.student import router as student_router
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -46,6 +47,7 @@ app.include_router(assets.account_router)
 app.include_router(content_router)
 app.include_router(delf_tests_router)
 app.include_router(parcours_router)
+app.include_router(student_router)
 app.include_router(multiplayer_router)
 app.include_router(school_router)
 app.include_router(prof_router)

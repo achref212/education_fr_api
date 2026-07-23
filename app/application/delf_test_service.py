@@ -20,6 +20,7 @@ from app.domain.ports import (
     ILearningPathRepository,
     IProgressRepository,
     IQuizRepository,
+    IStudentReviewRepository,
     IUserRepository,
 )
 
@@ -39,6 +40,7 @@ class DelfTestService:
         paths: ILearningPathRepository | None = None,
         users: IUserRepository | None = None,
         ai_parcours: AIParcoursAssignmentService | None = None,
+        reviews: IStudentReviewRepository | None = None,
     ) -> None:
         self._delf_tests = delf_tests
         self._quiz = quiz
@@ -46,6 +48,7 @@ class DelfTestService:
         self._paths = paths
         self._users = users
         self._ai_parcours = ai_parcours
+        self._reviews = reviews
 
     def get_config(self) -> DelfTestConfig:
         return self._delf_tests.get_config()
@@ -123,6 +126,7 @@ class DelfTestService:
             raise DelfTestError("Nombre de réponses incorrect pour cette section")
         existing_ids = {a.get("questionId") for a in session.answers}
         graded: list[dict[str, Any]] = []
+        wrong_answers: list[dict[str, Any]] = []
         correct_count = 0
         for item in answers:
             question_id_str = str(item.get("questionId", ""))
@@ -138,6 +142,13 @@ class DelfTestService:
             is_correct = selected_index == question.correct_index
             if is_correct:
                 correct_count += 1
+            else:
+                wrong_answers.append(
+                    {
+                        "question": question,
+                        "selectedIndex": selected_index,
+                    }
+                )
             graded.append(
                 {
                     "questionId": question_id_str,
@@ -158,6 +169,12 @@ class DelfTestService:
         )
         if updated is None:
             raise DelfTestError("Session introuvable")
+        self._store_review_items(
+            user=user,
+            session_id=session_id,
+            category=category,
+            wrong_answers=wrong_answers,
+        )
         return {
             "sessionId": str(updated.id),
             "category": category,
@@ -232,6 +249,31 @@ class DelfTestService:
             class_level=class_level,
             status=status,
         )
+
+    def _store_review_items(
+        self,
+        *,
+        user: User,
+        session_id: UUID,
+        category: str,
+        wrong_answers: list[dict[str, Any]],
+    ) -> None:
+        if self._reviews is None:
+            return
+        for answer in wrong_answers:
+            question = answer["question"]
+            self._reviews.upsert_wrong_answer(
+                user_id=user.id,
+                source_type="delf_test",
+                source_id=f"{session_id}:{category}",
+                question_id=str(question.id),
+                category=category,
+                question=question.question,
+                options=list(question.options),
+                selected_index=answer["selectedIndex"],
+                correct_index=question.correct_index,
+                explanation=question.explanation,
+            )
 
     def list_templates(self) -> list[dict[str, Any]]:
         return [self._build_template_out(t) for t in self._delf_tests.list_templates()]

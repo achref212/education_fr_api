@@ -52,3 +52,11 @@ class MediaAssetCreateIn(BaseModel):
     title: str | None = None
     url: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProfileAvatarGenerateIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    style: str = Field(default="friendly_school", max_length=40)
+    prompt: str | None = Field(default=None, max_length=400)
+    customization: dict[str, Any] = Field(default_factory=dict)

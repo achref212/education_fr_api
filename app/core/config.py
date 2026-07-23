@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = Field(default=45.0, validation_alias="AI_TIMEOUT_SECONDS")
     ai_repair_retries: int = Field(default=1, validation_alias="AI_REPAIR_RETRIES")
 
+    # Optional profile avatar image generation. Leave provider empty to disable it.
+    avatar_image_provider: str = Field(default="", validation_alias="AVATAR_IMAGE_PROVIDER")
+    avatar_image_model: str = Field(
+        default="krea/Krea-2-Turbo", validation_alias="AVATAR_IMAGE_MODEL"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

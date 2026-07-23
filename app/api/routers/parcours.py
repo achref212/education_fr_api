@@ -124,7 +124,12 @@ def complete_step(
     svc: ParcoursService = Depends(get_parcours_service),
 ) -> StepCompleteOut:
     try:
-        result = svc.complete_step(user, step_id, body.score)
+        answers = (
+            [answer.model_dump(by_alias=True) for answer in body.answers]
+            if body.answers
+            else None
+        )
+        result = svc.complete_step(user, step_id, body.score, answers=answers)
     except ParcoursError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message

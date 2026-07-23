@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.application.auth_service import AuthService
 from app.application.ai_content_service import AIContentService
 from app.application.ai_parcours_assignment_service import AIParcoursAssignmentService
+from app.application.avatar_image_service import AvatarImageService
 from app.application.delf_mock_exam_service import DelfMockExamService
 from app.application.delf_test_service import DelfTestService
 from app.application.difficulty_service import DifficultyService
@@ -16,6 +17,8 @@ from app.application.media_asset_service import MediaAssetService
 from app.application.parcours_service import ParcoursService
 from app.application.progress_service import ProgressService
 from app.application.student_stats_service import StudentStatsService
+from app.application.student_service import StudentService
+from app.application.student_delf_mock_exam_service import StudentDelfMockExamService
 from app.core.config import get_settings
 from app.core.security import decode_token, parse_school_id, parse_user_id
 from app.domain.entities import School, User
@@ -24,6 +27,7 @@ from app.domain.ports import (
     IAdminUserRepository,
     IContactRepository,
     IDelfMockExamRepository,
+    IDelfMockAttemptRepository,
     IDelfTestRepository,
     IEmailSender,
     IGameRepository,
@@ -37,6 +41,7 @@ from app.domain.ports import (
     ISchoolRepository,
     IStoryRepository,
     IStudentProgressRepository,
+    IStudentReviewRepository,
     IUserRepository,
 )
 from app.infrastructure.db.session import get_db
@@ -53,6 +58,9 @@ from app.infrastructure.repositories.sql_admin_user_repository import (
 from app.infrastructure.repositories.sql_contact_repository import SqlContactRepository
 from app.infrastructure.repositories.sql_delf_mock_exam_repository import (
     SqlDelfMockExamRepository,
+)
+from app.infrastructure.repositories.sql_delf_mock_attempt_repository import (
+    SqlDelfMockAttemptRepository,
 )
 from app.infrastructure.repositories.sql_delf_test_repository import SqlDelfTestRepository
 from app.infrastructure.repositories.sql_game_repository import SqlGameRepository
@@ -75,6 +83,9 @@ from app.infrastructure.repositories.sql_school_repository import SqlSchoolRepos
 from app.infrastructure.repositories.sql_story_repository import SqlStoryRepository
 from app.infrastructure.repositories.sql_student_progress_repository import (
     SqlStudentProgressRepository,
+)
+from app.infrastructure.repositories.sql_student_review_repository import (
+    SqlStudentReviewRepository,
 )
 from app.infrastructure.repositories.sql_user_repository import SqlUserRepository
 
@@ -141,6 +152,10 @@ def get_progress_service(
 
 def get_ai_content_service() -> AIContentService:
     return AIContentService.from_settings(get_settings())
+
+
+def get_avatar_image_service() -> AvatarImageService:
+    return AvatarImageService.from_settings(get_settings())
 
 
 def get_current_user(
@@ -369,6 +384,12 @@ def get_student_progress_repo(
     return SqlStudentProgressRepository(db)
 
 
+def get_student_review_repo(
+    db: Session = Depends(get_db),
+) -> IStudentReviewRepository:
+    return SqlStudentReviewRepository(db)
+
+
 def get_game_repo(db: Session = Depends(get_db)) -> IGameRepository:
     return SqlGameRepository(db)
 
@@ -381,6 +402,12 @@ def get_delf_mock_exam_repo(
     db: Session = Depends(get_db),
 ) -> IDelfMockExamRepository:
     return SqlDelfMockExamRepository(db)
+
+
+def get_delf_mock_attempt_repo(
+    db: Session = Depends(get_db),
+) -> IDelfMockAttemptRepository:
+    return SqlDelfMockAttemptRepository(db)
 
 
 def get_difficulty_service() -> DifficultyService:
@@ -401,6 +428,8 @@ def get_parcours_service(
     difficulty_service: DifficultyService = Depends(get_difficulty_service),
     delf_tests: IDelfTestRepository = Depends(get_delf_test_repo),
     users: IUserRepository = Depends(get_user_repo),
+    quiz: IQuizRepository = Depends(get_quiz_repo),
+    reviews: IStudentReviewRepository = Depends(get_student_review_repo),
 ) -> ParcoursService:
     return ParcoursService(
         paths=paths,
@@ -410,6 +439,8 @@ def get_parcours_service(
         difficulty_service=difficulty_service,
         delf_tests=delf_tests,
         users=users,
+        quiz=quiz,
+        reviews=reviews,
     )
 
 
@@ -456,6 +487,7 @@ def get_delf_test_service(
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
     users: IUserRepository = Depends(get_user_repo),
     ai_parcours: AIParcoursAssignmentService = Depends(get_ai_parcours_assignment_service),
+    reviews: IStudentReviewRepository = Depends(get_student_review_repo),
 ) -> DelfTestService:
     return DelfTestService(
         delf_tests=delf_tests,
@@ -464,6 +496,27 @@ def get_delf_test_service(
         paths=paths,
         users=users,
         ai_parcours=ai_parcours,
+        reviews=reviews,
+    )
+
+
+def get_student_service(
+    reviews: IStudentReviewRepository = Depends(get_student_review_repo),
+    progress: IStudentProgressRepository = Depends(get_student_progress_repo),
+    stats_service: StudentStatsService = Depends(get_student_stats_service),
+    parcours: ParcoursService = Depends(get_parcours_service),
+    delf_tests: IDelfTestRepository = Depends(get_delf_test_repo),
+    delf_service: DelfTestService = Depends(get_delf_test_service),
+    ai: AIContentService = Depends(get_ai_content_service),
+) -> StudentService:
+    return StudentService(
+        reviews=reviews,
+        progress=progress,
+        stats=stats_service,
+        parcours=parcours,
+        delf_tests=delf_tests,
+        delf_service=delf_service,
+        ai=ai,
     )
 
 
@@ -471,3 +524,15 @@ def get_delf_mock_exam_service(
     exams: IDelfMockExamRepository = Depends(get_delf_mock_exam_repo),
 ) -> DelfMockExamService:
     return DelfMockExamService(exams=exams)
+
+
+def get_student_delf_mock_exam_service(
+    exams: IDelfMockExamRepository = Depends(get_delf_mock_exam_repo),
+    attempts: IDelfMockAttemptRepository = Depends(get_delf_mock_attempt_repo),
+    reviews: IStudentReviewRepository = Depends(get_student_review_repo),
+) -> StudentDelfMockExamService:
+    return StudentDelfMockExamService(
+        exams=exams,
+        attempts=attempts,
+        reviews=reviews,
+    )

@@ -15,7 +15,9 @@ from app.domain.entities import (
 from app.domain.ports import (
     IDelfTestRepository,
     ILearningPathRepository,
+    IQuizRepository,
     IStudentProgressRepository,
+    IStudentReviewRepository,
     IUserRepository,
 )
 
@@ -36,6 +38,8 @@ class ParcoursService:
         difficulty_service: DifficultyService,
         delf_tests: IDelfTestRepository | None = None,
         users: IUserRepository | None = None,
+        quiz: IQuizRepository | None = None,
+        reviews: IStudentReviewRepository | None = None,
     ) -> None:
         self._paths = paths
         self._student_progress = student_progress
@@ -44,6 +48,8 @@ class ParcoursService:
         self._difficulty = difficulty_service
         self._delf_tests = delf_tests
         self._users = users
+        self._quiz = quiz
+        self._reviews = reviews
 
     def _resolve_class_level(self, user: User) -> str:
         if user.class_level:
@@ -129,7 +135,11 @@ class ParcoursService:
         return self._student_progress.upsert_step_progress(progress)
 
     def complete_step(
-        self, user: User, step_id: UUID, score: int
+        self,
+        user: User,
+        step_id: UUID,
+        score: int,
+        answers: list[dict] | None = None,
     ) -> dict:
         if score < 0 or score > 100:
             raise ParcoursError("Le score doit être entre 0 et 100")
@@ -165,6 +175,7 @@ class ParcoursService:
             xp_earned = self._stats.calculate_step_xp(step.xp_reward, score)
             self._stats.record_activity(user.id, xp_earned)
             self._sync_legacy_progress(user.id, step, score)
+        self._store_review_items(user, step, answers or [])
         summary = self.get_summary(user)
         next_step_id = None
         if passed:
@@ -187,6 +198,36 @@ class ParcoursService:
     def set_difficulty(self, user: User, difficulty: str) -> dict:
         stats = self._stats.set_preferred_difficulty(user.id, difficulty)
         return {"preferredDifficulty": stats.preferred_difficulty}
+
+    def _store_review_items(
+        self,
+        user: User,
+        step: LearningPathStep,
+        answers: list[dict],
+    ) -> None:
+        if self._reviews is None or self._quiz is None or not answers:
+            return
+        for answer in answers:
+            question_id = answer.get("questionId")
+            selected_index = int(answer.get("selectedIndex", -1))
+            try:
+                question = self._quiz.get(UUID(str(question_id)))
+            except (TypeError, ValueError):
+                continue
+            if question is None or selected_index == question.correct_index:
+                continue
+            self._reviews.upsert_wrong_answer(
+                user_id=user.id,
+                source_type="parcours",
+                source_id=str(step.id),
+                question_id=str(question.id),
+                category=question.category or step.quiz_category or "Parcours",
+                question=question.question,
+                options=list(question.options),
+                selected_index=selected_index,
+                correct_index=question.correct_index,
+                explanation=question.explanation,
+            )
 
     def _resolve_learning_path(self, user: User, class_level: str):
         if user.assigned_learning_path_id is not None:

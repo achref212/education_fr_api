@@ -226,6 +226,40 @@ class StudentStats:
 
 
 @dataclass
+class StudentReviewItem:
+    id: UUID
+    user_id: UUID
+    source_type: str
+    category: str
+    question: str
+    options: list[Any]
+    status: str
+    times_reviewed: int
+    created_at: datetime
+    updated_at: datetime
+    source_id: str | None = None
+    question_id: str | None = None
+    selected_index: int | None = None
+    correct_index: int | None = None
+    explanation: str | None = None
+    last_reviewed_at: datetime | None = None
+
+
+@dataclass
+class StudentLeaderboardEntry:
+    user_id: UUID
+    first_name: str
+    last_name: str
+    class_level: str | None
+    profile_picture_url: str | None
+    total_xp: int
+    current_streak: int
+    completed_steps: int
+    progress_percent: float
+    rank: int
+
+
+@dataclass
 class Game:
     id: UUID
     slug: str
@@ -382,3 +416,19 @@ class DelfMockExam:
     updated_at: datetime
     sections: list[DelfMockSection] = field(default_factory=list)
     assets: list[DelfMockAsset] = field(default_factory=list)
+
+
+@dataclass
+class DelfMockAttempt:
+    id: UUID
+    user_id: UUID
+    exam_id: UUID
+    status: str
+    answers: list[dict[str, Any]]
+    section_scores: dict[str, int]
+    approximate: bool
+    started_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    overall_score: int | None = None
+    finished_at: datetime | None = None

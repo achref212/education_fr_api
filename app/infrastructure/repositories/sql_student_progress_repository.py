@@ -2,13 +2,18 @@ import uuid
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain.entities import StudentStats, StudentStepProgress
+from app.domain.entities import (
+    StudentLeaderboardEntry,
+    StudentStats,
+    StudentStepProgress,
+)
 from app.domain.ports import IStudentProgressRepository
 from app.infrastructure.models.student_stats import StudentStatsORM
 from app.infrastructure.models.student_step_progress import StudentStepProgressORM
+from app.infrastructure.models.user import UserORM
 
 
 class SqlStudentProgressRepository(IStudentProgressRepository):
@@ -89,6 +94,67 @@ class SqlStudentProgressRepository(IStudentProgressRepository):
             row.updated_at = progress.updated_at
         self._session.flush()
         return _progress_to_domain(row)
+
+    def list_leaderboard(
+        self,
+        *,
+        school_id: UUID | None = None,
+        class_level: str | None = None,
+    ) -> list[StudentLeaderboardEntry]:
+        completed_subq = (
+            select(
+                StudentStepProgressORM.user_id.label("user_id"),
+                func.count(StudentStepProgressORM.step_id).label("completed_steps"),
+            )
+            .where(StudentStepProgressORM.status == "completed")
+            .group_by(StudentStepProgressORM.user_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                UserORM,
+                StudentStatsORM,
+                func.coalesce(completed_subq.c.completed_steps, 0),
+            )
+            .outerjoin(StudentStatsORM, StudentStatsORM.user_id == UserORM.id)
+            .outerjoin(completed_subq, completed_subq.c.user_id == UserORM.id)
+            .where(UserORM.role == "user", UserORM.is_active.is_(True))
+        )
+        if school_id is not None:
+            stmt = stmt.where(UserORM.school_id == school_id)
+        if class_level is not None:
+            stmt = stmt.where(UserORM.class_level == class_level)
+        rows = self._session.execute(stmt).all()
+        ordered = sorted(
+            rows,
+            key=lambda row: (
+                -(row[1].total_xp if row[1] else 0),
+                -(row[1].current_streak if row[1] else 0),
+                -int(row[2] or 0),
+                row[0].first_name.lower(),
+                row[0].last_name.lower(),
+            ),
+        )
+        entries: list[StudentLeaderboardEntry] = []
+        for rank, (user, stats, completed_steps) in enumerate(ordered, start=1):
+            total_xp = stats.total_xp if stats else 0
+            current_streak = stats.current_streak if stats else 0
+            completed = int(completed_steps or 0)
+            entries.append(
+                StudentLeaderboardEntry(
+                    user_id=user.id,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    class_level=user.class_level,
+                    profile_picture_url=user.profile_picture_url,
+                    total_xp=total_xp,
+                    current_streak=current_streak,
+                    completed_steps=completed,
+                    progress_percent=0.0,
+                    rank=rank,
+                )
+            )
+        return entries
 
 
 def _stats_to_domain(row: StudentStatsORM) -> StudentStats:

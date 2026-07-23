@@ -376,6 +376,44 @@ class AIContentService:
                 )
         raise last_error or AIContentError("Aucun parcours IA valide généré.")
 
+    def generate_student_hint(
+        self,
+        *,
+        question: str,
+        selected_answer: str | None,
+        correct_answer: str | None,
+        explanation: str | None,
+        category: str,
+    ) -> tuple[str, AIProviderInfo]:
+        prompt = (
+            "Aide un élève à comprendre une erreur de QCM sans donner une nouvelle question. "
+            "Réponds en français simple, en 3 phrases maximum. "
+            "Donne un indice guidé: rappelle la règle, explique pourquoi son choix pose problème, "
+            "puis invite l'élève à relire la bonne réponse. "
+            f"Catégorie: {category}. "
+            f"Question: {question}. "
+            f"Réponse choisie: {selected_answer or 'non fournie'}. "
+            f"Bonne réponse: {correct_answer or 'non fournie'}. "
+            f"Explication professeur: {explanation or 'non fournie'}."
+        )
+        errors: list[str] = []
+        for index, provider in enumerate([self._primary, self._backup]):
+            if provider is None:
+                continue
+            try:
+                result = provider.generate(prompt)
+                hint = result.text.strip()
+                if not hint:
+                    raise AIContentError("Réponse IA vide.")
+                return hint, AIProviderInfo(
+                    provider=result.provider,
+                    model=result.model,
+                    usedBackup=index > 0,
+                )
+            except (AIContentError, httpx.HTTPError, KeyError, ValueError) as exc:
+                errors.append(str(exc))
+        raise AIContentError("Aucun fournisseur IA disponible. " + " | ".join(errors))
+
     def _validate_base(
         self,
         body: AIContentGenerateIn,

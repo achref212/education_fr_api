@@ -4,7 +4,14 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.api.dependencies import get_db, get_media_asset_service, require_admin
+from app.api.dependencies import (
+    get_avatar_image_service,
+    get_current_user,
+    get_db,
+    get_media_asset_service,
+    require_admin,
+)
+from app.application.avatar_image_service import AvatarImageError, AvatarImageResult
 from app.application.media_asset_service import MediaAssetService
 from app.core.config import get_settings
 from app.domain.entities import MediaAsset, User
@@ -100,6 +107,29 @@ class InMemoryMediaAssetRepo:
         return None
 
 
+class StubAvatarImageService:
+    def __init__(self, *, disabled: bool = False) -> None:
+        self.disabled = disabled
+        self.calls: list[dict] = []
+
+    def generate(self, *, style, customization, prompt):
+        self.calls.append(
+            {"style": style, "customization": customization, "prompt": prompt}
+        )
+        if self.disabled:
+            raise AvatarImageError(
+                "provider_disabled",
+                "La génération d'avatar IA n'est pas configurée.",
+            )
+        return AvatarImageResult(
+            image_bytes=b"\x89PNG\r\n\x1a\navatar",
+            mime_type="image/png",
+            provider="stub",
+            model="stub-avatar",
+            prompt="student avatar",
+        )
+
+
 @pytest.fixture
 async def media_client(tmp_path, monkeypatch):
     repo = InMemoryMediaAssetRepo()
@@ -116,6 +146,7 @@ async def media_client(tmp_path, monkeypatch):
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[require_admin] = _admin_user
+    app.dependency_overrides[get_current_user] = _admin_user
     app.dependency_overrides[get_media_asset_service] = lambda: MediaAssetService(
         repo, settings
     )
@@ -223,3 +254,58 @@ async def test_admin_registers_and_archives_external_url(media_client) -> None:
     listed_active = await client.get("/admin/assets", params={"assetType": "audio"})
     assert listed_active.status_code == 200
     assert listed_active.json() == []
+
+
+@pytest.mark.anyio
+async def test_profile_avatar_generation_saves_profile_image(media_client) -> None:
+    client, repo = media_client
+    avatar_service = StubAvatarImageService()
+    app.dependency_overrides[get_avatar_image_service] = lambda: avatar_service
+
+    response = await client.post(
+        "/assets/profile-avatar/generate",
+        json={
+            "style": "cartoon",
+            "customization": {"hair": "short", "background": "yellow"},
+            "prompt": "smiling learner",
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["assetType"] == "profile_image"
+    assert data["ownerType"] == "user"
+    assert data["url"].startswith("/media/images/")
+    assert data["metadata"]["source"] == "ai_avatar"
+    assert data["metadata"]["style"] == "cartoon"
+    assert avatar_service.calls == [
+        {
+            "style": "cartoon",
+            "customization": {"hair": "short", "background": "yellow"},
+            "prompt": "smiling learner",
+        }
+    ]
+
+    static_response = await client.get(data["url"])
+    assert static_response.status_code == 200
+    assert static_response.content == b"\x89PNG\r\n\x1a\navatar"
+    assert len(repo.assets) == 1
+
+
+@pytest.mark.anyio
+async def test_profile_avatar_generation_returns_503_when_disabled(
+    media_client,
+) -> None:
+    client, repo = media_client
+    app.dependency_overrides[get_avatar_image_service] = lambda: StubAvatarImageService(
+        disabled=True
+    )
+
+    response = await client.post(
+        "/assets/profile-avatar/generate",
+        json={"style": "friendly_school"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "La génération d'avatar IA n'est pas configurée."
+    assert repo.assets == []
