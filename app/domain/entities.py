@@ -117,6 +117,8 @@ class Lesson:
     sort_order: int
     created_at: datetime
     professor_id: UUID | None = None
+    school_id: UUID | None = None
+    visibility: str = "public"
 
 
 @dataclass
@@ -128,6 +130,9 @@ class QuizQuestion:
     explanation: str | None
     category: str
     level: str
+    professor_id: UUID | None = None
+    school_id: UUID | None = None
+    visibility: str = "public"
 
 
 @dataclass
@@ -138,6 +143,9 @@ class Story:
     level: str
     audio_url: str | None
     created_at: datetime
+    professor_id: UUID | None = None
+    school_id: UUID | None = None
+    visibility: str = "public"
 
 
 @dataclass

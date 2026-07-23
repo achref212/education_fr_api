@@ -108,6 +108,9 @@ class DelfTestResultsOut(BaseModel):
     status: str
     sections: list[DelfTestSectionResultOut]
     finishedAt: str | None
+    assignedLearningPathId: UUID | None = None
+    parcoursGeneratedByAi: bool | None = None
+    parcoursAssignmentStatus: str | None = None
 
 
 class DelfTestSessionAdminOut(BaseModel):

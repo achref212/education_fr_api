@@ -5,6 +5,7 @@ import pytest
 
 from app.api.dependencies import (
     get_ai_content_service,
+    get_learning_path_repo,
     get_lesson_repo,
     get_quiz_repo,
     require_admin,
@@ -15,6 +16,11 @@ from app.api.schemas.ai_content import (
     AIDelfMockExamOut,
     AIDelfMockItemDraft,
     AIDelfMockSectionDraft,
+    AIGeneratedLessonDraft,
+    AIGeneratedStoryDraft,
+    AILearningPathDraft,
+    AILearningPathOut,
+    AILearningPathStepDraft,
     AIProviderInfo,
     AIQuizQuestionDraft,
     AIQuizQuestionsOut,
@@ -67,6 +73,83 @@ class StubAIContentService:
                 sections=sections,
                 assets=[],
             ),
+        )
+
+    def generate_learning_path(
+        self,
+        body: AIContentGenerateIn,
+        reference_context: str | None = None,
+    ) -> AILearningPathOut:
+        provider = AIProviderInfo(provider="hf", model="microsoft/Phi-4-mini-instruct")
+        return AILearningPathOut(
+            provider=provider,
+            path=AILearningPathDraft(
+                title="Parcours personnalisé A1",
+                description="Renforcement ciblé après le diagnostic.",
+                classLevel=body.classLevel,
+                delfTargetLevel=body.targetDelfLevel,
+                minScore=0,
+                maxScore=100,
+                isDefault=False,
+            ),
+            generatedLessons=[
+                AIGeneratedLessonDraft(
+                    key="lesson-1",
+                    title="Réviser les accords",
+                    content="Une règle, deux exemples et une mini-activité.",
+                    category="Grammaire",
+                    level=body.classLevel,
+                    sortOrder=0,
+                )
+            ],
+            generatedStories=[
+                AIGeneratedStoryDraft(
+                    key="story-1",
+                    title="Au club de lecture",
+                    content="Lina lit une histoire courte avec ses amis.",
+                    level=body.classLevel,
+                    audioUrl=None,
+                )
+            ],
+            generatedQuestions=[
+                AIQuizQuestionDraft(
+                    question="Quelle phrase accorde correctement le nom ami au pluriel ?",
+                    options=[
+                        "Les amis jouent.",
+                        "Les ami jouent.",
+                        "Le amis jouent.",
+                        "Les amies joue.",
+                    ],
+                    correctIndex=0,
+                    explanation="Au pluriel, ami prend un s avec les.",
+                    category=body.category or "Grammaire",
+                    level=body.classLevel,
+                )
+            ],
+            steps=[
+                AILearningPathStepDraft(
+                    stepOrder=1,
+                    stepType="lesson",
+                    title="Comprendre les accords",
+                    xpReward=20,
+                    generatedLessonKey="lesson-1",
+                ),
+                AILearningPathStepDraft(
+                    stepOrder=2,
+                    stepType="quiz",
+                    title="Quiz grammaire",
+                    xpReward=20,
+                    quizCategory=body.category or "Grammaire",
+                ),
+                AILearningPathStepDraft(
+                    stepOrder=3,
+                    stepType="story",
+                    title="Lire une histoire courte",
+                    xpReward=15,
+                    generatedStoryKey="story-1",
+                ),
+            ],
+            adaptationNotes="Le parcours commence par la catégorie faible.",
         )
 
 
@@ -176,3 +259,32 @@ async def test_ai_mock_exam_endpoint_returns_full_draft_for_admin(client) -> Non
         "writing",
         "speaking",
     ]
+
+
+@pytest.mark.anyio
+async def test_ai_learning_path_endpoint_returns_full_playable_draft(client) -> None:
+    app.dependency_overrides[require_admin] = admin_user
+    app.dependency_overrides[get_ai_content_service] = lambda: StubAIContentService()
+    app.dependency_overrides[get_learning_path_repo] = lambda: EmptyContentRepo()
+    try:
+        response = await client.post(
+            "/admin/ai/generate-learning-path",
+            json={
+                "classLevel": "3ème année",
+                "targetDelfLevel": "A1",
+                "category": "Grammaire",
+                "count": 6,
+                "difficulty": "medium",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["path"]["title"] == "Parcours personnalisé A1"
+    assert data["generatedLessons"][0]["key"] == "lesson-1"
+    assert data["generatedStories"][0]["audioUrl"] is None
+    assert data["generatedQuestions"][0]["options"][0] == "Les amis jouent."
+    assert [step["stepType"] for step in data["steps"]] == ["lesson", "quiz", "story"]
+    assert data["adaptationNotes"]

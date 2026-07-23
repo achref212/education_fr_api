@@ -2,10 +2,10 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.domain.entities import QuizQuestion
+from app.domain.entities import QuizQuestion, User
 from app.domain.ports import IQuizRepository
 from app.infrastructure.models.quiz_question import QuizQuestionORM
 
@@ -18,6 +18,14 @@ class SqlQuizRepository(IQuizRepository):
         stmt = select(QuizQuestionORM)
         rows = self._session.scalars(stmt).all()
         return [_to_domain(r) for r in rows]
+
+    def list_by_professor(self, professor_id: UUID) -> list[QuizQuestion]:
+        stmt = select(QuizQuestionORM).where(QuizQuestionORM.professor_id == professor_id)
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
+    def list_visible_for_user(self, user: User) -> list[QuizQuestion]:
+        stmt = select(QuizQuestionORM).where(_visible_filter(user))
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
 
     def list_by_level(self, level: str) -> list[QuizQuestion]:
         stmt = select(QuizQuestionORM).where(QuizQuestionORM.level == level)
@@ -44,6 +52,9 @@ class SqlQuizRepository(IQuizRepository):
         explanation: str | None,
         category: str,
         level: str,
+        professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> QuizQuestion:
         row = QuizQuestionORM(
             id=uuid.uuid4(),
@@ -53,6 +64,9 @@ class SqlQuizRepository(IQuizRepository):
             explanation=explanation,
             category=category,
             level=level,
+            professor_id=professor_id,
+            school_id=school_id,
+            visibility=visibility,
         )
         self._session.add(row)
         self._session.flush()
@@ -68,6 +82,7 @@ class SqlQuizRepository(IQuizRepository):
         explanation: str | None = None,
         category: str | None = None,
         level: str | None = None,
+        visibility: str | None = None,
     ) -> QuizQuestion | None:
         row = self._session.get(QuizQuestionORM, question_id)
         if row is None:
@@ -84,6 +99,8 @@ class SqlQuizRepository(IQuizRepository):
             row.category = category
         if level is not None:
             row.level = level
+        if visibility is not None:
+            row.visibility = visibility
         self._session.flush()
         return _to_domain(row)
 
@@ -113,4 +130,17 @@ def _to_domain(row: QuizQuestionORM) -> QuizQuestion:
         explanation=row.explanation,
         category=row.category,
         level=row.level,
+        professor_id=row.professor_id,
+        school_id=row.school_id,
+        visibility=row.visibility or "public",
+    )
+
+
+def _visible_filter(user: User):
+    if user.role in {"admin", "prof"}:
+        return True
+    school_id = user.school_id
+    return or_(
+        QuizQuestionORM.visibility == "public",
+        QuizQuestionORM.school_id == school_id,
     )

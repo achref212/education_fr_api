@@ -38,6 +38,20 @@ class AILessonDraft(BaseModel):
     sortOrder: int = 0
 
 
+class AIGeneratedLessonDraft(AILessonDraft):
+    key: str = Field(min_length=1, max_length=80)
+
+
+class AIGeneratedStoryDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=180)
+    content: str = Field(min_length=1)
+    level: str
+    audioUrl: str | None = None
+
+
 class AILearningPathDraft(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -48,6 +62,18 @@ class AILearningPathDraft(BaseModel):
     minScore: int | None = Field(default=None, ge=0, le=100)
     maxScore: int | None = Field(default=None, ge=0, le=100)
     isDefault: bool = False
+
+
+class AILearningPathStepDraft(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    stepOrder: int = Field(ge=1)
+    stepType: str
+    title: str = Field(min_length=1, max_length=180)
+    xpReward: int = Field(default=20, ge=0, le=200)
+    quizCategory: str | None = None
+    generatedLessonKey: str | None = None
+    generatedStoryKey: str | None = None
 
 
 class AIDelfTestDraft(BaseModel):
@@ -129,6 +155,11 @@ class AILessonOut(BaseModel):
 class AILearningPathOut(BaseModel):
     provider: AIProviderInfo
     path: AILearningPathDraft
+    generatedLessons: list[AIGeneratedLessonDraft] = Field(default_factory=list)
+    generatedStories: list[AIGeneratedStoryDraft] = Field(default_factory=list)
+    generatedQuestions: list[AIQuizQuestionDraft] = Field(default_factory=list)
+    steps: list[AILearningPathStepDraft] = Field(default_factory=list)
+    adaptationNotes: str | None = None
 
 
 class AIDelfTestOut(BaseModel):

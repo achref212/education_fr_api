@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.application.auth_service import AuthService
 from app.application.ai_content_service import AIContentService
+from app.application.ai_parcours_assignment_service import AIParcoursAssignmentService
 from app.application.delf_mock_exam_service import DelfMockExamService
 from app.application.delf_test_service import DelfTestService
 from app.application.difficulty_service import DifficultyService
@@ -412,6 +413,24 @@ def get_parcours_service(
     )
 
 
+def get_ai_parcours_assignment_service(
+    ai: AIContentService = Depends(get_ai_content_service),
+    paths: ILearningPathRepository = Depends(get_learning_path_repo),
+    lessons: ILessonRepository = Depends(get_lesson_repo),
+    stories: IStoryRepository = Depends(get_story_repo),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+    users: IUserRepository = Depends(get_user_repo),
+) -> AIParcoursAssignmentService:
+    return AIParcoursAssignmentService(
+        ai=ai,
+        paths=paths,
+        lessons=lessons,
+        stories=stories,
+        quizzes=quizzes,
+        users=users,
+    )
+
+
 def get_game_session_service(
     rooms: IMultiplayerRepository = Depends(get_multiplayer_repo),
     games: IGameRepository = Depends(get_game_repo),
@@ -436,6 +455,7 @@ def get_delf_test_service(
     progress: IProgressRepository = Depends(get_progress_repo),
     paths: ILearningPathRepository = Depends(get_learning_path_repo),
     users: IUserRepository = Depends(get_user_repo),
+    ai_parcours: AIParcoursAssignmentService = Depends(get_ai_parcours_assignment_service),
 ) -> DelfTestService:
     return DelfTestService(
         delf_tests=delf_tests,
@@ -443,6 +463,7 @@ def get_delf_test_service(
         progress=progress,
         paths=paths,
         users=users,
+        ai_parcours=ai_parcours,
     )
 
 

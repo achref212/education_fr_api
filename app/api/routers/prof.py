@@ -11,11 +11,23 @@ from app.api.dependencies import (
     get_parcours_service,
     get_delf_test_service,
     get_progress_repo,
+    get_quiz_repo,
     get_recommendation_repo,
     get_school_repo,
+    get_story_repo,
     require_prof,
 )
-from app.api.schemas.admin import LessonCreateIn, LessonOut, MultiplayerRoomOut
+from app.api.schemas.admin import (
+    LessonCreateIn,
+    LessonOut,
+    MultiplayerRoomOut,
+    QuizQuestionCreateIn,
+    QuizQuestionOut,
+    QuizQuestionUpdateIn,
+    StoryCreateIn,
+    StoryOut,
+    StoryUpdateIn,
+)
 from app.api.schemas.parcours import ParcoursOut, ParcoursStepOut
 from app.api.schemas.delf_test import DelfTestHistoryOut
 from app.api.schemas.recommendation import RecommendationCreate, RecommendationOut
@@ -28,14 +40,31 @@ from app.domain.ports import (
     ILessonRepository,
     IMultiplayerRepository,
     IProgressRepository,
+    IQuizRepository,
     IRecommendationRepository,
     ISchoolRepository,
+    IStoryRepository,
 )
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/prof", tags=["professor"])
 
 _ROOM_CODE_BYTES = 4
+
+
+def _normalize_visibility(value: str | None, prof: User) -> str:
+    visibility = value or "public"
+    if visibility not in {"public", "school"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Visibilité invalide.",
+        )
+    if visibility == "school" and prof.teacher_school_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous n'êtes pas associé à un établissement.",
+        )
+    return visibility
 
 
 class RoomCreateIn(BaseModel):
@@ -367,6 +396,8 @@ def create_lesson(
         level=body.level,
         sort_order=body.sortOrder,
         professor_id=prof.id,
+        school_id=prof.teacher_school_id,
+        visibility=_normalize_visibility(body.visibility, prof),
     )
     db.commit()
     return LessonOut.from_domain(lesson)
@@ -393,9 +424,197 @@ def update_lesson(
         category=body.category,
         level=body.level,
         sort_order=body.sortOrder,
+        school_id=prof.teacher_school_id,
+        visibility=_normalize_visibility(body.visibility, prof),
     )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leçon introuvable")
+    db.commit()
+
+
+@router.get("/quiz-questions", response_model=list[QuizQuestionOut])
+def list_quiz_questions(
+    prof: User = Depends(require_prof),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+) -> list[QuizQuestionOut]:
+    return [QuizQuestionOut.from_domain(x) for x in quizzes.list_by_professor(prof.id)]
+
+
+@router.post(
+    "/quiz-questions",
+    response_model=QuizQuestionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quiz_question(
+    body: QuizQuestionCreateIn,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+) -> QuizQuestionOut:
+    if body.correctIndex < 0 or body.correctIndex >= len(body.options):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="correctIndex out of range",
+        )
+    question = quizzes.create(
+        question=body.question,
+        options=body.options,
+        correct_index=body.correctIndex,
+        explanation=body.explanation,
+        category=body.category,
+        level=body.level,
+        professor_id=prof.id,
+        school_id=prof.teacher_school_id,
+        visibility=_normalize_visibility(body.visibility, prof),
+    )
+    db.commit()
+    return QuizQuestionOut.from_domain(question)
+
+
+@router.put("/quiz-questions/{question_id}", response_model=QuizQuestionOut)
+def update_quiz_question(
+    question_id: UUID,
+    body: QuizQuestionUpdateIn,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+) -> QuizQuestionOut:
+    current = quizzes.get(question_id)
+    if current is None or current.professor_id != prof.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question introuvable",
+        )
+    options = body.options if body.options is not None else current.options
+    correct_index = (
+        body.correctIndex if body.correctIndex is not None else current.correct_index
+    )
+    if correct_index < 0 or correct_index >= len(options):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="correctIndex out of range",
+        )
+    updated = quizzes.update(
+        question_id,
+        question=body.question,
+        options=body.options,
+        correct_index=body.correctIndex,
+        explanation=body.explanation,
+        category=body.category,
+        level=body.level,
+        visibility=_normalize_visibility(body.visibility, prof)
+        if body.visibility is not None
+        else None,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question introuvable",
+        )
+    db.commit()
+    return QuizQuestionOut.from_domain(updated)
+
+
+@router.delete("/quiz-questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_quiz_question(
+    question_id: UUID,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    quizzes: IQuizRepository = Depends(get_quiz_repo),
+) -> None:
+    current = quizzes.get(question_id)
+    if current is None or current.professor_id != prof.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question introuvable",
+        )
+    if not quizzes.delete(question_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question introuvable",
+        )
+    db.commit()
+
+
+@router.get("/stories", response_model=list[StoryOut])
+def list_stories(
+    prof: User = Depends(require_prof),
+    stories: IStoryRepository = Depends(get_story_repo),
+) -> list[StoryOut]:
+    return [StoryOut.from_domain(x) for x in stories.list_by_professor(prof.id)]
+
+
+@router.post("/stories", response_model=StoryOut, status_code=status.HTTP_201_CREATED)
+def create_story(
+    body: StoryCreateIn,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    stories: IStoryRepository = Depends(get_story_repo),
+) -> StoryOut:
+    story = stories.create(
+        title=body.title,
+        content=body.content,
+        level=body.level,
+        audio_url=body.audioUrl,
+        professor_id=prof.id,
+        school_id=prof.teacher_school_id,
+        visibility=_normalize_visibility(body.visibility, prof),
+    )
+    db.commit()
+    return StoryOut.from_domain(story)
+
+
+@router.put("/stories/{story_id}", response_model=StoryOut)
+def update_story(
+    story_id: UUID,
+    body: StoryUpdateIn,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    stories: IStoryRepository = Depends(get_story_repo),
+) -> StoryOut:
+    current = stories.get(story_id)
+    if current is None or current.professor_id != prof.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Histoire introuvable",
+        )
+    updated = stories.update(
+        story_id,
+        title=body.title,
+        content=body.content,
+        level=body.level,
+        audio_url=body.audioUrl,
+        visibility=_normalize_visibility(body.visibility, prof)
+        if body.visibility is not None
+        else None,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Histoire introuvable",
+        )
+    db.commit()
+    return StoryOut.from_domain(updated)
+
+
+@router.delete("/stories/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_story(
+    story_id: UUID,
+    db: Session = Depends(get_db),
+    prof: User = Depends(require_prof),
+    stories: IStoryRepository = Depends(get_story_repo),
+) -> None:
+    current = stories.get(story_id)
+    if current is None or current.professor_id != prof.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Histoire introuvable",
+        )
+    if not stories.delete(story_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Histoire introuvable",
+        )
     db.commit()
     return LessonOut.from_domain(updated)
 

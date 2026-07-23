@@ -4,6 +4,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.application.ai_parcours_assignment_service import (
+    AIParcoursAssignmentError,
+    AIParcoursAssignmentResult,
+)
 from app.application.delf_test_service import DelfTestError, DelfTestService
 from app.domain.constants import (
     DEFAULT_DELF_LEVEL_THRESHOLDS,
@@ -248,6 +252,16 @@ class FakeLearningPathRepo:
                 return bucket[0]
         return None
 
+    def get_default_for_class_level(self, class_level: str) -> LearningPath | None:
+        return next(
+            (
+                path
+                for path in sorted(self.paths, key=lambda item: (not item.is_default, item.created_at))
+                if path.class_level == class_level and path.is_active
+            ),
+            None,
+        )
+
 
 @dataclass
 class FakeUserRepo:
@@ -260,12 +274,36 @@ class FakeUserRepo:
         return None
 
 
+class FakeSuccessfulAIParcours:
+    def __init__(self, path_id: UUID) -> None:
+        self.path_id = path_id
+        self.calls: list[tuple[User, DelfTestSession]] = []
+
+    def assign_for_completed_test(
+        self, user: User, session: DelfTestSession
+    ) -> AIParcoursAssignmentResult:
+        self.calls.append((user, session))
+        return AIParcoursAssignmentResult(
+            path_id=self.path_id,
+            generated_by_ai=True,
+            status="ai_generated",
+        )
+
+
+class FakeFailingAIParcours:
+    def assign_for_completed_test(
+        self, user: User, session: DelfTestSession
+    ) -> AIParcoursAssignmentResult:
+        raise AIParcoursAssignmentError("provider missing")
+
+
 def _build_service(
     delf_repo: FakeDelfTestRepo,
     quiz_repo: FakeQuizRepo,
     progress_repo: FakeProgressRepo | None = None,
     paths_repo: FakeLearningPathRepo | None = None,
     user_repo: FakeUserRepo | None = None,
+    ai_parcours=None,
 ) -> DelfTestService:
     return DelfTestService(
         delf_tests=delf_repo,
@@ -273,6 +311,7 @@ def _build_service(
         progress=progress_repo or FakeProgressRepo(),
         paths=paths_repo,
         users=user_repo,
+        ai_parcours=ai_parcours,
     )
 
 
@@ -505,6 +544,70 @@ def test_finish_test_assigns_matching_learning_path() -> None:
         service.submit_section(user, session_id, section["category"], answers)
     service.finish_test(user, session_id)
     assert user_repo.assigned[user.id] == path.id
+
+
+def test_finish_test_reports_ai_generated_learning_path_assignment() -> None:
+    user = _student()
+    quiz_repo = FakeQuizRepo(questions=_seed_questions(user.class_level or ""))
+    generated_path_id = uuid4()
+    ai_parcours = FakeSuccessfulAIParcours(generated_path_id)
+    service = _build_service(
+        FakeDelfTestRepo(),
+        quiz_repo,
+        ai_parcours=ai_parcours,
+    )
+    start = service.start_test(user)
+    session_id = UUID(start["sessionId"])
+    for section in start["sections"]:
+        answers = [
+            {"questionId": q["id"], "selectedIndex": 0, "timeMs": 800}
+            for q in section["questions"]
+        ]
+        service.submit_section(user, session_id, section["category"], answers)
+
+    results = service.finish_test(user, session_id)
+
+    assert ai_parcours.calls
+    assert results["assignedLearningPathId"] == str(generated_path_id)
+    assert results["parcoursGeneratedByAi"] is True
+    assert results["parcoursAssignmentStatus"] == "ai_generated"
+
+
+def test_finish_test_falls_back_to_matched_path_when_ai_assignment_fails() -> None:
+    user = _student()
+    quiz_repo = FakeQuizRepo(questions=_seed_questions(user.class_level or ""))
+    path = LearningPath(
+        id=uuid4(),
+        class_level=user.class_level or "",
+        title="B2 fallback path",
+        delf_target_level="B2",
+        created_at=datetime.now(timezone.utc),
+        min_score=90,
+        max_score=100,
+    )
+    user_repo = FakeUserRepo()
+    service = _build_service(
+        FakeDelfTestRepo(),
+        quiz_repo,
+        paths_repo=FakeLearningPathRepo(paths=[path]),
+        user_repo=user_repo,
+        ai_parcours=FakeFailingAIParcours(),
+    )
+    start = service.start_test(user)
+    session_id = UUID(start["sessionId"])
+    for section in start["sections"]:
+        answers = [
+            {"questionId": q["id"], "selectedIndex": 0, "timeMs": 800}
+            for q in section["questions"]
+        ]
+        service.submit_section(user, session_id, section["category"], answers)
+
+    results = service.finish_test(user, session_id)
+
+    assert user_repo.assigned[user.id] == path.id
+    assert results["assignedLearningPathId"] == str(path.id)
+    assert results["parcoursGeneratedByAi"] is False
+    assert results["parcoursAssignmentStatus"] == "matched"
 
 
 def test_finish_test_sorts_thresholds_before_level_calculation() -> None:

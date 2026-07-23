@@ -117,6 +117,9 @@ class LessonOut(BaseModel):
     level: str
     sortOrder: int
     createdAt: datetime
+    professorId: UUID | None = None
+    schoolId: UUID | None = None
+    visibility: str = "public"
 
     @classmethod
     def from_domain(cls, x: Lesson) -> "LessonOut":
@@ -128,6 +131,9 @@ class LessonOut(BaseModel):
             level=x.level,
             sortOrder=x.sort_order,
             createdAt=x.created_at,
+            professorId=x.professor_id,
+            schoolId=x.school_id,
+            visibility=x.visibility,
         )
 
 
@@ -139,6 +145,7 @@ class LessonCreateIn(BaseModel):
     category: str
     level: str
     sortOrder: int = 0
+    visibility: str = "public"
 
 
 class LessonUpdateIn(BaseModel):
@@ -149,6 +156,7 @@ class LessonUpdateIn(BaseModel):
     category: str | None = None
     level: str | None = None
     sortOrder: int | None = None
+    visibility: str | None = None
 
 
 # --- Quiz ---
@@ -164,6 +172,9 @@ class QuizQuestionOut(BaseModel):
     explanation: str | None
     category: str
     level: str
+    professorId: UUID | None = None
+    schoolId: UUID | None = None
+    visibility: str = "public"
 
     @classmethod
     def from_domain(cls, x: QuizQuestion) -> "QuizQuestionOut":
@@ -175,6 +186,9 @@ class QuizQuestionOut(BaseModel):
             explanation=x.explanation,
             category=x.category,
             level=x.level,
+            professorId=x.professor_id,
+            schoolId=x.school_id,
+            visibility=x.visibility,
         )
 
 
@@ -187,6 +201,7 @@ class QuizQuestionCreateIn(BaseModel):
     explanation: str | None = None
     category: str
     level: str
+    visibility: str = "public"
 
 
 class QuizQuestionUpdateIn(BaseModel):
@@ -198,6 +213,7 @@ class QuizQuestionUpdateIn(BaseModel):
     explanation: str | None = None
     category: str | None = None
     level: str | None = None
+    visibility: str | None = None
 
 
 # --- Stories ---
@@ -212,6 +228,9 @@ class StoryOut(BaseModel):
     level: str
     audioUrl: str | None
     createdAt: datetime
+    professorId: UUID | None = None
+    schoolId: UUID | None = None
+    visibility: str = "public"
 
     @classmethod
     def from_domain(cls, x: Story) -> "StoryOut":
@@ -222,6 +241,9 @@ class StoryOut(BaseModel):
             level=x.level,
             audioUrl=x.audio_url,
             createdAt=x.created_at,
+            professorId=x.professor_id,
+            schoolId=x.school_id,
+            visibility=x.visibility,
         )
 
 
@@ -232,6 +254,7 @@ class StoryCreateIn(BaseModel):
     content: str
     level: str
     audioUrl: str | None = None
+    visibility: str = "public"
 
 
 class StoryUpdateIn(BaseModel):
@@ -241,6 +264,7 @@ class StoryUpdateIn(BaseModel):
     content: str | None = None
     level: str | None = None
     audioUrl: str | None = None
+    visibility: str | None = None
 
 
 # --- Contact ---

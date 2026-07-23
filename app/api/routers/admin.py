@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -78,8 +78,16 @@ from app.api.schemas.parcours import (
     LearningPathStepUpdateIn,
     LearningPathUpdateIn,
 )
-from app.api.schemas.school import SchoolCreate, SchoolCreateOut, SchoolOut, SchoolUpdate
+from app.api.schemas.school import (
+    ImportResultOut,
+    ImportRowResultOut,
+    SchoolCreate,
+    SchoolCreateOut,
+    SchoolOut,
+    SchoolUpdate,
+)
 from app.application.auth_service import AuthError, AuthService
+from app.application.import_service import ImportParseError, parse_import_file, template_csv
 from app.application.ai_content_service import AIContentError, AIContentService
 from app.application.delf_mock_exam_service import (
     DelfMockExamError,
@@ -107,6 +115,16 @@ from app.domain.ports import (
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _normalize_visibility(value: str | None) -> str:
+    visibility = value or "public"
+    if visibility not in {"public", "school"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Visibilité invalide.",
+        )
+    return visibility
 
 
 def _ai_error(exc: AIContentError) -> HTTPException:
@@ -456,6 +474,7 @@ def create_lesson(
         category=body.category,
         level=body.level,
         sort_order=body.sortOrder,
+        visibility="public",
     )
     db.commit()
     return LessonOut.from_domain(l)
@@ -476,6 +495,7 @@ def update_lesson(
         category=body.category,
         level=body.level,
         sort_order=body.sortOrder,
+        visibility=_normalize_visibility(body.visibility) if body.visibility is not None else None,
     )
     if l is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -536,6 +556,7 @@ def create_quiz_question(
         explanation=body.explanation,
         category=body.category,
         level=body.level,
+        visibility="public",
     )
     db.commit()
     return QuizQuestionOut.from_domain(q)
@@ -568,6 +589,7 @@ def update_quiz_question(
         explanation=body.explanation,
         category=body.category,
         level=body.level,
+        visibility=_normalize_visibility(body.visibility) if body.visibility is not None else None,
     )
     if q is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -610,6 +632,7 @@ def create_story(
         content=body.content,
         level=body.level,
         audio_url=body.audioUrl,
+        visibility="public",
     )
     db.commit()
     return StoryOut.from_domain(s)
@@ -629,6 +652,7 @@ def update_story(
         content=body.content,
         level=body.level,
         audio_url=body.audioUrl,
+        visibility=_normalize_visibility(body.visibility) if body.visibility is not None else None,
     )
     if s is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -1254,6 +1278,102 @@ def create_school(
             detail="Cet e-mail est déjà utilisé",
         ) from exc
     return SchoolCreateOut.from_domain(school, plain_password)
+
+
+@router.get("/schools/import-template")
+def school_import_template(
+    _admin: User = Depends(require_admin),
+) -> Response:
+    return Response(
+        content=template_csv("schools"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="modele-ecoles.csv"'},
+    )
+
+
+@router.post("/schools/import", response_model=ImportResultOut)
+async def import_schools(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+    auth: AuthService = Depends(get_auth_service),
+) -> ImportResultOut:
+    try:
+        rows = await parse_import_file(file, kind="schools")
+    except ImportParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+
+    results: list[ImportRowResultOut] = []
+    for row in rows:
+        values = row.values
+        name = values.get("name") or ""
+        email = values.get("email") or ""
+        if not name or not email:
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email or None,
+                    displayName=name or None,
+                    error="Nom et e-mail sont obligatoires.",
+                )
+            )
+            continue
+        try:
+            school, plain_password = auth.create_school_account(
+                name=name,
+                email=email,
+                admin_id=admin.id,
+                address=values.get("address") or None,
+                city=values.get("city") or None,
+                postal_code=values.get("postalCode") or None,
+                phone=values.get("phone") or None,
+                director_name=values.get("directorName") or None,
+                logo_url=values.get("logoUrl") or None,
+            )
+            db.commit()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="created",
+                    email=school.email,
+                    displayName=school.name,
+                    createdId=school.id,
+                    plainPassword=plain_password,
+                )
+            )
+        except AuthError as exc:
+            db.rollback()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email,
+                    displayName=name,
+                    error=exc.message,
+                )
+            )
+        except IntegrityError:
+            db.rollback()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email,
+                    displayName=name,
+                    error="Cet e-mail est déjà utilisé.",
+                )
+            )
+    created = sum(1 for result in results if result.status == "created")
+    return ImportResultOut(
+        totalRows=len(rows),
+        createdCount=created,
+        skippedCount=len(results) - created,
+        results=results,
+    )
 
 
 @router.get("/schools/{school_id}", response_model=SchoolOut)

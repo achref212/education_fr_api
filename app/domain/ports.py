@@ -249,9 +249,13 @@ class ILessonRepository(Protocol):
 
     def list_by_professor(self, professor_id: UUID) -> list[Lesson]: ...
 
+    def list_visible_for_user(self, user: User) -> list[Lesson]: ...
+
     def list_by_level(self, level: str) -> list[Lesson]: ...
 
-    def list_by_category(self, category: str) -> list[Lesson]: ...
+    def list_by_category(
+        self, category: str, user: User | None = None
+    ) -> list[Lesson]: ...
 
     def get(self, lesson_id: UUID) -> Lesson | None: ...
 
@@ -263,6 +267,8 @@ class ILessonRepository(Protocol):
         level: str,
         sort_order: int,
         professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> Lesson: ...
 
     def update(
@@ -274,6 +280,8 @@ class ILessonRepository(Protocol):
         category: str | None = None,
         level: str | None = None,
         sort_order: int | None = None,
+        school_id: UUID | None = None,
+        visibility: str | None = None,
     ) -> Lesson | None: ...
 
     def delete(self, lesson_id: UUID) -> bool: ...
@@ -285,6 +293,10 @@ class ILessonRepository(Protocol):
 
 class IQuizRepository(Protocol):
     def list_all(self) -> list[QuizQuestion]: ...
+
+    def list_by_professor(self, professor_id: UUID) -> list[QuizQuestion]: ...
+
+    def list_visible_for_user(self, user: User) -> list[QuizQuestion]: ...
 
     def list_by_level(self, level: str) -> list[QuizQuestion]: ...
 
@@ -302,6 +314,9 @@ class IQuizRepository(Protocol):
         explanation: str | None,
         category: str,
         level: str,
+        professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> QuizQuestion: ...
 
     def update(
@@ -314,6 +329,7 @@ class IQuizRepository(Protocol):
         explanation: str | None = None,
         category: str | None = None,
         level: str | None = None,
+        visibility: str | None = None,
     ) -> QuizQuestion | None: ...
 
     def delete(self, question_id: UUID) -> bool: ...
@@ -323,6 +339,10 @@ class IQuizRepository(Protocol):
 
 class IStoryRepository(Protocol):
     def list_all(self) -> list[Story]: ...
+
+    def list_by_professor(self, professor_id: UUID) -> list[Story]: ...
+
+    def list_visible_for_user(self, user: User) -> list[Story]: ...
 
     def list_by_level(self, level: str) -> list[Story]: ...
 
@@ -334,6 +354,9 @@ class IStoryRepository(Protocol):
         content: str,
         level: str,
         audio_url: str | None,
+        professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> Story: ...
 
     def update(
@@ -344,6 +367,7 @@ class IStoryRepository(Protocol):
         content: str | None = None,
         level: str | None = None,
         audio_url: str | None = None,
+        visibility: str | None = None,
     ) -> Story | None: ...
 
     def delete(self, story_id: UUID) -> bool: ...

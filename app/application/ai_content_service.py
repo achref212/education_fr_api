@@ -17,8 +17,11 @@ from app.api.schemas.ai_content import (
     AIDelfMockExamOut,
     AIDelfMockItemDraft,
     AIDelfMockSectionDraft,
+    AIGeneratedLessonDraft,
+    AIGeneratedStoryDraft,
     AILearningPathDraft,
     AILearningPathOut,
+    AILearningPathStepDraft,
     AILessonDraft,
     AILessonOut,
     AIProviderInfo,
@@ -195,7 +198,7 @@ class AIContentService:
         provider: AIProviderInfo | None = None
         next_prompt = prompt
         last_error: AIContentError | None = None
-        for _ in range(self._repair_retries + 2):
+        for _ in range(self._repair_retries + 1):
             data, provider = self._generate_json(next_prompt, ["questions"])
             try:
                 questions = [
@@ -237,7 +240,7 @@ class AIContentService:
         data: dict[str, Any] = {}
         next_prompt = prompt
         last_error: AIContentError | None = None
-        for _ in range(self._repair_retries + 2):
+        for _ in range(self._repair_retries + 1):
             data, provider = self._generate_json(next_prompt, ["questionsByCategory"])
             try:
                 grouped = {}
@@ -305,7 +308,7 @@ class AIContentService:
         next_prompt = prompt
         provider: AIProviderInfo | None = None
         last_error: AIContentError | None = None
-        for _ in range(self._repair_retries + 2):
+        for _ in range(self._repair_retries + 1):
             data, provider = self._generate_json(next_prompt, ["exam"])
             try:
                 draft = self._normalize_mock_exam(data["exam"], body, track)
@@ -349,30 +352,29 @@ class AIContentService:
         self,
         body: AIContentGenerateIn,
         reference_context: str | None = None,
+        student_profile: dict[str, Any] | None = None,
     ) -> AILearningPathOut:
         self._validate_base(body, require_quiz_category=False)
-        prompt = self._prompt(
+        prompt = self._learning_path_prompt(
             body,
-            (
-                "Retourne uniquement JSON: {\"path\":{title,description,classLevel,"
-                "delfTargetLevel,minScore,maxScore,isDefault}}. "
-                "Le parcours doit expliquer pour quel résultat DELF il est utile, "
-                "quels besoins d'élève il cible, et rester cohérent avec les parcours existants."
-            ),
+            student_profile=student_profile,
             reference_context=reference_context,
         )
-        data, provider = self._generate_json(prompt, ["path"])
-        raw = data["path"]
-        draft = AILearningPathDraft(
-            title=str(raw.get("title") or f"Parcours DELF {body.targetDelfLevel}"),
-            description=raw.get("description") or "",
-            classLevel=body.classLevel,
-            delfTargetLevel=body.targetDelfLevel,
-            minScore=raw.get("minScore"),
-            maxScore=raw.get("maxScore"),
-            isDefault=bool(raw.get("isDefault", False)),
-        )
-        return AILearningPathOut(provider=provider, path=draft)
+        provider: AIProviderInfo | None = None
+        next_prompt = prompt
+        last_error: AIContentError | None = None
+        for _ in range(self._repair_retries + 1):
+            data, provider = self._generate_json(next_prompt, ["path", "steps"])
+            try:
+                return self._normalize_learning_path(data, body, provider)
+            except (AIContentError, ValidationError) as exc:
+                last_error = AIContentError(str(exc))
+                next_prompt = (
+                    prompt
+                    + f" La réponse précédente est refusée: {last_error.message}. "
+                    "Régénère entièrement le parcours en corrigeant ce problème."
+                )
+        raise last_error or AIContentError("Aucun parcours IA valide généré.")
 
     def _validate_base(
         self,
@@ -503,6 +505,206 @@ class AIContentService:
             f"{output_contract} "
             "Ne mets aucun Markdown, aucun commentaire, uniquement un objet JSON valide."
         )
+
+    def _learning_path_prompt(
+        self,
+        body: AIContentGenerateIn,
+        *,
+        student_profile: dict[str, Any] | None = None,
+        reference_context: str | None = None,
+    ) -> str:
+        profile = student_profile or {}
+        achieved = profile.get("achievedDelfLevel") or body.targetDelfLevel
+        overall = profile.get("overallScore")
+        category_scores = profile.get("categoryScores") or {}
+        weak_categories = profile.get("weakCategories") or QUIZ_CATEGORIES[:2]
+        strong_categories = profile.get("strongCategories") or []
+        references = reference_context.strip() if reference_context else "Aucune donnée existante pertinente."
+        extra = body.teacherInstructions.strip() if body.teacherInstructions else DEFAULT_PEDAGOGICAL_PROMPT
+        return (
+            "Mission: créer un parcours DELF personnalisé et immédiatement jouable pour un élève. "
+            "Profil élève: "
+            f"Classe: {body.classLevel}. "
+            f"Objectif DELF initial: {profile.get('targetDelfLevel') or body.targetDelfLevel}. "
+            f"Niveau DELF atteint: {achieved}. "
+            f"Score global: {overall if overall is not None else 'non fourni'}/100. "
+            f"Scores par catégorie: {category_scores}. "
+            f"Catégories faibles à renforcer en priorité: {weak_categories}. "
+            f"Catégories fortes à maintenir: {strong_categories}. "
+            "Règles pédagogiques obligatoires: adapter le niveau de langue à l'âge et à la classe; "
+            "commencer par les faiblesses, puis consolider, puis terminer par une révision mixte; "
+            "ne pas punir l'élève, avec un ton encourageant, des consignes courtes et une progression claire; "
+            "chaque étape doit être faisable dans l'application mobile existante; "
+            "générer uniquement du contenu original, sans copier de textes protégés; "
+            "pour les leçons: expliquer une règle, donner 2 exemples, puis une mini-activité; "
+            "pour les quiz: créer 4 options différentes, une seule bonne réponse, une explication claire; "
+            "pour les histoires: texte court adapté au niveau, vocabulaire simple, audioUrl null; "
+            "ne jamais inventer d'UUID; si une étape référence du contenu généré, utiliser une clé locale stable "
+            "comme generatedLessonKey ou generatedStoryKey. "
+            "Structure recommandée: 5 à 8 étapes; 2 leçons pour les catégories faibles; "
+            "2 quiz pour les catégories faibles; 1 histoire de lecture/vocabulaire; 1 quiz de révision mixte; "
+            "ajouter une étape leçon ou quiz seulement si le score global est inférieur à 50. "
+            f"Consignes professeur: {extra}. "
+            f"Données existantes du projet à respecter comme style et contexte, sans les recopier: {references}. "
+            "Retourne uniquement JSON valide: "
+            "{\"path\":{title,description,classLevel,delfTargetLevel,minScore,maxScore,isDefault},"
+            "\"generatedLessons\":[{key,title,content,category,level,sortOrder}],"
+            "\"generatedStories\":[{key,title,content,level,audioUrl}],"
+            "\"generatedQuestions\":[{question,options,correctIndex,explanation,category,level}],"
+            "\"steps\":[{stepOrder,stepType,title,xpReward,quizCategory,generatedLessonKey,generatedStoryKey}],"
+            "\"adaptationNotes\":\"...\"}. "
+            "Ne mets aucun Markdown, aucun commentaire, uniquement un objet JSON valide."
+        )
+
+    def _normalize_learning_path(
+        self,
+        data: dict[str, Any],
+        body: AIContentGenerateIn,
+        provider: AIProviderInfo,
+    ) -> AILearningPathOut:
+        raw_path = data.get("path") or {}
+        class_level = str(raw_path.get("classLevel") or body.classLevel).strip()
+        delf_level = str(raw_path.get("delfTargetLevel") or body.targetDelfLevel).strip()
+        if class_level not in CLASS_LEVELS:
+            raise AIContentError("Le parcours généré contient un niveau scolaire invalide.")
+        if delf_level not in DELF_LEVELS:
+            raise AIContentError("Le parcours généré contient un niveau DELF invalide.")
+        min_score = raw_path.get("minScore")
+        max_score = raw_path.get("maxScore")
+        min_score = int(min_score) if min_score is not None else None
+        max_score = int(max_score) if max_score is not None else None
+        if min_score is not None and (min_score < 0 or min_score > 100):
+            raise AIContentError("Score minimum du parcours invalide.")
+        if max_score is not None and (max_score < 0 or max_score > 100):
+            raise AIContentError("Score maximum du parcours invalide.")
+        if min_score is not None and max_score is not None and min_score > max_score:
+            raise AIContentError("Le score minimum du parcours dépasse le score maximum.")
+
+        path = AILearningPathDraft(
+            title=str(raw_path.get("title") or f"Parcours DELF {delf_level}").strip(),
+            description=str(raw_path.get("description") or "").strip(),
+            classLevel=class_level,
+            delfTargetLevel=delf_level,
+            minScore=min_score,
+            maxScore=max_score,
+            isDefault=bool(raw_path.get("isDefault", False)),
+        )
+        lessons = [
+            self._normalize_generated_lesson(item, class_level)
+            for item in data.get("generatedLessons", [])
+        ]
+        stories = [
+            self._normalize_generated_story(item, class_level)
+            for item in data.get("generatedStories", [])
+        ]
+        questions: list[AIQuizQuestionDraft] = []
+        for item in data.get("generatedQuestions", []):
+            category = str(item.get("category") or body.category or "").strip()
+            if category not in QUIZ_CATEGORIES:
+                raise AIContentError("Une question générée contient une catégorie invalide.")
+            questions.append(self._normalize_question(item, category, class_level))
+        steps = [
+            self._normalize_learning_path_step(item)
+            for item in data.get("steps", [])
+        ]
+        self._validate_learning_path_steps(steps, lessons, stories)
+        return AILearningPathOut(
+            provider=provider,
+            path=path,
+            generatedLessons=lessons,
+            generatedStories=stories,
+            generatedQuestions=questions,
+            steps=steps,
+            adaptationNotes=str(data.get("adaptationNotes") or "").strip() or None,
+        )
+
+    def _normalize_generated_lesson(
+        self,
+        item: dict[str, Any],
+        class_level: str,
+    ) -> AIGeneratedLessonDraft:
+        category = str(item.get("category") or "").strip()
+        if category not in LESSON_CATEGORIES:
+            raise AIContentError("Une leçon générée contient une catégorie invalide.")
+        lesson = AIGeneratedLessonDraft(
+            key=str(item.get("key") or "").strip(),
+            title=str(item.get("title") or "").strip(),
+            content=str(item.get("content") or "").strip(),
+            category=category,
+            level=str(item.get("level") or class_level).strip(),
+            sortOrder=int(item.get("sortOrder") or 0),
+        )
+        if lesson.level not in CLASS_LEVELS:
+            raise AIContentError("Une leçon générée contient un niveau invalide.")
+        return lesson
+
+    def _normalize_generated_story(
+        self,
+        item: dict[str, Any],
+        class_level: str,
+    ) -> AIGeneratedStoryDraft:
+        story = AIGeneratedStoryDraft(
+            key=str(item.get("key") or "").strip(),
+            title=str(item.get("title") or "").strip(),
+            content=str(item.get("content") or "").strip(),
+            level=str(item.get("level") or class_level).strip(),
+            audioUrl=item.get("audioUrl"),
+        )
+        if story.level not in CLASS_LEVELS:
+            raise AIContentError("Une histoire générée contient un niveau invalide.")
+        return story
+
+    def _normalize_learning_path_step(
+        self,
+        item: dict[str, Any],
+    ) -> AILearningPathStepDraft:
+        step_type = str(item.get("stepType") or "").strip()
+        if step_type not in {"lesson", "quiz", "story"}:
+            raise AIContentError("Une étape générée contient un type invalide.")
+        quiz_category = item.get("quizCategory")
+        quiz_category = str(quiz_category).strip() if quiz_category else None
+        if step_type == "quiz" and quiz_category not in QUIZ_CATEGORIES:
+            raise AIContentError("Une étape quiz doit contenir une catégorie valide.")
+        return AILearningPathStepDraft(
+            stepOrder=int(item.get("stepOrder") or 0),
+            stepType=step_type,
+            title=str(item.get("title") or "").strip(),
+            xpReward=int(item.get("xpReward") or 20),
+            quizCategory=quiz_category,
+            generatedLessonKey=(
+                str(item.get("generatedLessonKey")).strip()
+                if item.get("generatedLessonKey")
+                else None
+            ),
+            generatedStoryKey=(
+                str(item.get("generatedStoryKey")).strip()
+                if item.get("generatedStoryKey")
+                else None
+            ),
+        )
+
+    def _validate_learning_path_steps(
+        self,
+        steps: list[AILearningPathStepDraft],
+        lessons: list[AIGeneratedLessonDraft],
+        stories: list[AIGeneratedStoryDraft],
+    ) -> None:
+        if len(steps) < 5 or len(steps) > 8:
+            raise AIContentError("Un parcours généré doit contenir entre 5 et 8 étapes.")
+        expected_orders = list(range(1, len(steps) + 1))
+        if [step.stepOrder for step in steps] != expected_orders:
+            raise AIContentError("Les étapes du parcours doivent être ordonnées de 1 à N.")
+        lesson_keys = {lesson.key for lesson in lessons}
+        story_keys = {story.key for story in stories}
+        if len(lesson_keys) != len(lessons):
+            raise AIContentError("Les clés de leçons générées doivent être uniques.")
+        if len(story_keys) != len(stories):
+            raise AIContentError("Les clés d'histoires générées doivent être uniques.")
+        for step in steps:
+            if step.stepType == "lesson" and step.generatedLessonKey not in lesson_keys:
+                raise AIContentError("Une étape leçon référence une leçon générée introuvable.")
+            if step.stepType == "story" and step.generatedStoryKey not in story_keys:
+                raise AIContentError("Une étape histoire référence une histoire générée introuvable.")
 
     def _generate_json(
         self,

@@ -1,6 +1,7 @@
+from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,15 +14,35 @@ from app.api.dependencies import (
 )
 from app.api.schemas.delf_test import DelfTestHistoryOut
 from app.application.delf_test_service import DelfTestService
-from app.api.schemas.school import ProfCreate, ProfCreateOut, SchoolOut, SchoolProfileUpdateIn
+from app.api.schemas.school import (
+    ImportResultOut,
+    ImportRowResultOut,
+    ProfCreate,
+    ProfCreateOut,
+    SchoolOut,
+    SchoolProfileUpdateIn,
+)
 from app.api.schemas.user import UserOut
 from app.api.schemas.admin import UserProgressItemOut, AdminUserOut
 from app.application.auth_service import AuthError, AuthService
+from app.application.import_service import ImportParseError, parse_import_file, template_csv
 from app.domain.entities import School
 from app.domain.ports import IProgressRepository, ISchoolRepository
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/school", tags=["school"])
+
+
+def _parse_import_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError as exc:
+        raise AuthError(
+            "invalid_date",
+            "La date de naissance doit être au format AAAA-MM-JJ.",
+        ) from exc
 
 
 @router.get("/me", response_model=SchoolOut)
@@ -149,6 +170,101 @@ def list_professors(
 ) -> list[UserOut]:
     profs = repo.list_professors(school.id)
     return [UserOut.from_domain(p) for p in profs]
+
+
+@router.get("/professors/import-template")
+def professor_import_template(
+    school: School = Depends(get_current_school),
+) -> Response:
+    return Response(
+        content=template_csv("professors"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="modele-professeurs.csv"'},
+    )
+
+
+@router.post("/professors/import", response_model=ImportResultOut)
+async def import_professors(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    school: School = Depends(get_current_school),
+    auth: AuthService = Depends(get_auth_service),
+) -> ImportResultOut:
+    try:
+        rows = await parse_import_file(file, kind="professors")
+    except ImportParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+
+    results: list[ImportRowResultOut] = []
+    for row in rows:
+        values = row.values
+        first_name = values.get("firstName") or ""
+        last_name = values.get("lastName") or ""
+        email = values.get("email") or ""
+        if not first_name or not last_name or not email:
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email or None,
+                    displayName=f"{first_name} {last_name}".strip() or None,
+                    error="Prénom, nom et e-mail sont obligatoires.",
+                )
+            )
+            continue
+        try:
+            birth_date = _parse_import_date(values.get("dateOfBirth") or None)
+            prof, plain_password = auth.create_prof_account(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                teacher_school_id=school.id,
+                phone=values.get("phone") or None,
+                date_of_birth=birth_date,
+            )
+            db.commit()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="created",
+                    email=prof.email,
+                    displayName=f"{prof.first_name} {prof.last_name}",
+                    createdId=prof.id,
+                    plainPassword=plain_password,
+                )
+            )
+        except AuthError as exc:
+            db.rollback()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email,
+                    displayName=f"{first_name} {last_name}".strip(),
+                    error=exc.message,
+                )
+            )
+        except IntegrityError:
+            db.rollback()
+            results.append(
+                ImportRowResultOut(
+                    rowNumber=row.row_number,
+                    status="skipped",
+                    email=email,
+                    displayName=f"{first_name} {last_name}".strip(),
+                    error="Cet e-mail est déjà utilisé.",
+                )
+            )
+    created = sum(1 for result in results if result.status == "created")
+    return ImportResultOut(
+        totalRows=len(rows),
+        createdCount=created,
+        skippedCount=len(results) - created,
+        results=results,
+    )
 
 
 @router.post("/professors", response_model=ProfCreateOut, status_code=status.HTTP_201_CREATED)

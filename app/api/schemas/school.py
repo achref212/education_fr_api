@@ -136,3 +136,24 @@ class ProfCreateOut(BaseModel):
     plainPassword: str
     phone: str | None = None
     dateOfBirth: date | None = None
+
+
+class ImportRowResultOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rowNumber: int
+    status: str
+    email: str | None = None
+    displayName: str | None = None
+    createdId: UUID | None = None
+    plainPassword: str | None = None
+    error: str | None = None
+
+
+class ImportResultOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    totalRows: int
+    createdCount: int
+    skippedCount: int
+    results: list[ImportRowResultOut]

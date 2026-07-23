@@ -3,6 +3,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from app.application.ai_parcours_assignment_service import (
+    AIParcoursAssignmentError,
+    AIParcoursAssignmentService,
+)
 from app.domain.constants import (
     DEFAULT_DELF_LEVEL_THRESHOLDS,
     CLASS_LEVELS,
@@ -34,12 +38,14 @@ class DelfTestService:
         progress: IProgressRepository,
         paths: ILearningPathRepository | None = None,
         users: IUserRepository | None = None,
+        ai_parcours: AIParcoursAssignmentService | None = None,
     ) -> None:
         self._delf_tests = delf_tests
         self._quiz = quiz
         self._progress = progress
         self._paths = paths
         self._users = users
+        self._ai_parcours = ai_parcours
 
     def get_config(self) -> DelfTestConfig:
         return self._delf_tests.get_config()
@@ -185,8 +191,12 @@ class DelfTestService:
         if updated is None:
             raise DelfTestError("Session introuvable")
         self._sync_progress(user.id, updated)
-        self._assign_parcours_from_result(user, updated)
-        return self.get_results(user, session_id)
+        assignment = self._assign_parcours_from_result(user, updated)
+        return self._build_results(
+            updated,
+            include_explanations=True,
+            assignment=assignment,
+        )
 
     def get_results(self, user: User, session_id: UUID) -> dict[str, Any]:
         session = self._require_session(user, session_id)
@@ -451,16 +461,44 @@ class DelfTestService:
 
     def _assign_parcours_from_result(
         self, user: User, session: DelfTestSession
-    ) -> None:
+    ) -> dict[str, Any]:
+        if self._ai_parcours is not None:
+            try:
+                generated = self._ai_parcours.assign_for_completed_test(user, session)
+                return {
+                    "assignedLearningPathId": str(generated.path_id),
+                    "parcoursGeneratedByAi": generated.generated_by_ai,
+                    "parcoursAssignmentStatus": generated.status,
+                }
+            except AIParcoursAssignmentError:
+                pass
         if self._paths is None or self._users is None:
-            return
+            return {
+                "assignedLearningPathId": None,
+                "parcoursGeneratedByAi": False,
+                "parcoursAssignmentStatus": "unavailable",
+            }
         matched = self._paths.find_match(
             class_level=session.class_level,
             delf_level=session.achieved_delf_level,
             score=session.overall_score,
         )
-        if matched is not None:
-            self._users.assign_learning_path(user.id, matched.id)
+        status_value = "matched"
+        if matched is None:
+            matched = self._paths.get_default_for_class_level(session.class_level)
+            status_value = "default"
+        if matched is None:
+            return {
+                "assignedLearningPathId": None,
+                "parcoursGeneratedByAi": False,
+                "parcoursAssignmentStatus": "unavailable",
+            }
+        self._users.assign_learning_path(user.id, matched.id)
+        return {
+            "assignedLearningPathId": str(matched.id),
+            "parcoursGeneratedByAi": False,
+            "parcoursAssignmentStatus": status_value,
+        }
 
     def _require_session(self, user: User, session_id: UUID) -> DelfTestSession:
         session = self._delf_tests.get_session(session_id)
@@ -533,7 +571,11 @@ class DelfTestService:
         }
 
     def _build_results(
-        self, session: DelfTestSession, *, include_explanations: bool
+        self,
+        session: DelfTestSession,
+        *,
+        include_explanations: bool,
+        assignment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
         answers_by_question = {a["questionId"]: a for a in session.answers}
@@ -567,7 +609,7 @@ class DelfTestService:
             session.target_delf_level,
             session.achieved_delf_level or "A1",
         )
-        return {
+        result: dict[str, Any] = {
             "sessionId": str(session.id),
             "classLevel": session.class_level,
             "targetDelfLevel": session.target_delf_level,
@@ -579,6 +621,9 @@ class DelfTestService:
             "sections": sections,
             "finishedAt": session.finished_at.isoformat() if session.finished_at else None,
         }
+        if assignment is not None:
+            result.update(assignment)
+        return result
 
     def _build_template_out(
         self, template, *, include_questions: bool = False

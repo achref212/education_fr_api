@@ -154,6 +154,33 @@ async def test_admin_uploads_image_and_static_url_is_readable(media_client) -> N
 
 
 @pytest.mark.anyio
+async def test_admin_uploads_webm_audio_and_static_url_is_readable(media_client) -> None:
+    client, repo = media_client
+
+    response = await client.post(
+        "/admin/assets/upload",
+        data={
+            "assetType": "audio",
+            "title": "Audio enregistré",
+        },
+        files={"file": ("recording.webm", b"\x1a\x45\xdf\xa3webm", "audio/webm")},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["assetType"] == "audio"
+    assert data["url"].startswith("/media/audio/")
+    assert data["mimeType"] == "audio/webm"
+    assert data["sizeBytes"] == 8
+
+    static_response = await client.get(data["url"])
+    assert static_response.status_code == 200
+    assert static_response.content == b"\x1a\x45\xdf\xa3webm"
+
+    assert len(repo.assets) == 1
+
+
+@pytest.mark.anyio
 async def test_admin_upload_rejects_wrong_mime_type(media_client) -> None:
     client, _engine = media_client
 

@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.domain.entities import Story
+from app.domain.entities import Story, User
 from app.domain.ports import IStoryRepository
 from app.infrastructure.models.story import StoryORM
 
@@ -18,6 +18,22 @@ class SqlStoryRepository(IStoryRepository):
         stmt = select(StoryORM).order_by(StoryORM.created_at.desc())
         rows = self._session.scalars(stmt).all()
         return [_to_domain(r) for r in rows]
+
+    def list_by_professor(self, professor_id: UUID) -> list[Story]:
+        stmt = (
+            select(StoryORM)
+            .where(StoryORM.professor_id == professor_id)
+            .order_by(StoryORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
+    def list_visible_for_user(self, user: User) -> list[Story]:
+        stmt = (
+            select(StoryORM)
+            .where(_visible_filter(user))
+            .order_by(StoryORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
 
     def list_by_level(self, level: str) -> list[Story]:
         stmt = (
@@ -37,6 +53,9 @@ class SqlStoryRepository(IStoryRepository):
         content: str,
         level: str,
         audio_url: str | None,
+        professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> Story:
         now = datetime.now(timezone.utc)
         row = StoryORM(
@@ -45,6 +64,9 @@ class SqlStoryRepository(IStoryRepository):
             content=content,
             level=level,
             audio_url=audio_url,
+            professor_id=professor_id,
+            school_id=school_id,
+            visibility=visibility,
             created_at=now,
         )
         self._session.add(row)
@@ -59,6 +81,7 @@ class SqlStoryRepository(IStoryRepository):
         content: str | None = None,
         level: str | None = None,
         audio_url: str | None = None,
+        visibility: str | None = None,
     ) -> Story | None:
         row = self._session.get(StoryORM, story_id)
         if row is None:
@@ -71,6 +94,8 @@ class SqlStoryRepository(IStoryRepository):
             row.level = level
         if audio_url is not None:
             row.audio_url = audio_url
+        if visibility is not None:
+            row.visibility = visibility
         self._session.flush()
         return _to_domain(row)
 
@@ -96,4 +121,17 @@ def _to_domain(row: StoryORM) -> Story:
         level=row.level,
         audio_url=row.audio_url,
         created_at=row.created_at,
+        professor_id=row.professor_id,
+        school_id=row.school_id,
+        visibility=row.visibility or "public",
+    )
+
+
+def _visible_filter(user: User):
+    if user.role in {"admin", "prof"}:
+        return True
+    school_id = user.school_id
+    return or_(
+        StoryORM.visibility == "public",
+        StoryORM.school_id == school_id,
     )

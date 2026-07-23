@@ -37,6 +37,7 @@ AUDIO_MIME_TYPES = {
     "audio/wav",
     "audio/x-wav",
     "audio/ogg",
+    "audio/webm",
 }
 DOCUMENT_MIME_TYPES = {"application/pdf"}
 

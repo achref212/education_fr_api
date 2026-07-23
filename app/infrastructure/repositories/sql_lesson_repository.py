@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.domain.entities import Lesson
+from app.domain.entities import Lesson, User
 from app.domain.ports import ILessonRepository
 from app.infrastructure.models.lesson import LessonORM
 
@@ -29,6 +29,14 @@ class SqlLessonRepository(ILessonRepository):
         )
         return [_to_domain(r) for r in self._session.scalars(stmt).all()]
 
+    def list_visible_for_user(self, user: User) -> list[Lesson]:
+        stmt = (
+            select(LessonORM)
+            .where(_visible_filter(user))
+            .order_by(LessonORM.sort_order, LessonORM.created_at.desc())
+        )
+        return [_to_domain(r) for r in self._session.scalars(stmt).all()]
+
     def list_by_level(self, level: str) -> list[Lesson]:
         stmt = (
             select(LessonORM)
@@ -37,10 +45,15 @@ class SqlLessonRepository(ILessonRepository):
         )
         return [_to_domain(r) for r in self._session.scalars(stmt).all()]
 
-    def list_by_category(self, category: str) -> list[Lesson]:
+    def list_by_category(
+        self, category: str, user: User | None = None
+    ) -> list[Lesson]:
+        filters = [LessonORM.category == category]
+        if user is not None:
+            filters.append(_visible_filter(user))
         stmt = (
             select(LessonORM)
-            .where(LessonORM.category == category)
+            .where(*filters)
             .order_by(LessonORM.sort_order, LessonORM.created_at.desc())
         )
         return [_to_domain(r) for r in self._session.scalars(stmt).all()]
@@ -57,6 +70,8 @@ class SqlLessonRepository(ILessonRepository):
         level: str,
         sort_order: int,
         professor_id: UUID | None = None,
+        school_id: UUID | None = None,
+        visibility: str = "public",
     ) -> Lesson:
         now = datetime.now(timezone.utc)
         row = LessonORM(
@@ -67,6 +82,8 @@ class SqlLessonRepository(ILessonRepository):
             level=level,
             sort_order=sort_order,
             professor_id=professor_id,
+            school_id=school_id,
+            visibility=visibility,
             created_at=now,
         )
         self._session.add(row)
@@ -82,6 +99,8 @@ class SqlLessonRepository(ILessonRepository):
         category: str | None = None,
         level: str | None = None,
         sort_order: int | None = None,
+        school_id: UUID | None = None,
+        visibility: str | None = None,
     ) -> Lesson | None:
         row = self._session.get(LessonORM, lesson_id)
         if row is None:
@@ -96,6 +115,10 @@ class SqlLessonRepository(ILessonRepository):
             row.level = level
         if sort_order is not None:
             row.sort_order = sort_order
+        if school_id is not None:
+            row.school_id = school_id
+        if visibility is not None:
+            row.visibility = visibility
         self._session.flush()
         return _to_domain(row)
 
@@ -130,4 +153,16 @@ def _to_domain(row: LessonORM) -> Lesson:
         sort_order=row.sort_order,
         created_at=row.created_at,
         professor_id=row.professor_id,
+        school_id=row.school_id,
+        visibility=row.visibility or "public",
+    )
+
+
+def _visible_filter(user: User):
+    if user.role in {"admin", "prof"}:
+        return True
+    school_id = user.school_id
+    return or_(
+        LessonORM.visibility == "public",
+        LessonORM.school_id == school_id,
     )

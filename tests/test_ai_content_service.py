@@ -95,6 +95,79 @@ def mock_exam_json(section_points: int = 25) -> str:
     ) + "]}}"
 
 
+def learning_path_json(
+    *,
+    quiz_category: str = "Grammaire",
+    lesson_key: str = "lesson-1",
+) -> str:
+    return f"""
+    {{
+      "path": {{
+        "title": "Parcours personnalisé A1",
+        "description": "Renforcement adapté après le test DELF.",
+        "classLevel": "3ème année",
+        "delfTargetLevel": "A1",
+        "minScore": 0,
+        "maxScore": 100,
+        "isDefault": false
+      }},
+      "generatedLessons": [
+        {{
+          "key": "lesson-1",
+          "title": "Revoir les accords simples",
+          "content": "Objectif: comprendre les accords. Exemple 1. Exemple 2. Mini-activité.",
+          "category": "Grammaire",
+          "level": "3ème année",
+          "sortOrder": 0
+        }},
+        {{
+          "key": "lesson-2",
+          "title": "Conjuguer être au présent",
+          "content": "Objectif: conjuguer être. Exemple 1. Exemple 2. Mini-activité.",
+          "category": "Conjugaison",
+          "level": "3ème année",
+          "sortOrder": 1
+        }}
+      ],
+      "generatedStories": [
+        {{
+          "key": "story-1",
+          "title": "Une journée à l'école",
+          "content": "Lina arrive à l'école. Elle lit une phrase et répond calmement.",
+          "level": "3ème année",
+          "audioUrl": null
+        }}
+      ],
+      "generatedQuestions": [
+        {{
+          "question": "Quelle phrase accorde correctement le nom ami au pluriel ?",
+          "options": ["Les amis jouent.", "Les ami jouent.", "Le amis jouent.", "Les amies joue."],
+          "correctIndex": 0,
+          "explanation": "Au pluriel, ami prend un s avec les.",
+          "category": "{quiz_category}",
+          "level": "3ème année"
+        }},
+        {{
+          "question": "Quelle forme du verbe être convient avec nous ?",
+          "options": ["Nous sommes prêts.", "Nous suis prêts.", "Nous est prêts.", "Nous sont prêts."],
+          "correctIndex": 0,
+          "explanation": "Avec nous, le verbe être se conjugue sommes.",
+          "category": "Conjugaison",
+          "level": "3ème année"
+        }}
+      ],
+      "steps": [
+        {{"stepOrder": 1, "stepType": "lesson", "title": "Comprendre les accords", "xpReward": 20, "generatedLessonKey": "{lesson_key}"}},
+        {{"stepOrder": 2, "stepType": "quiz", "title": "Quiz grammaire", "xpReward": 20, "quizCategory": "Grammaire"}},
+        {{"stepOrder": 3, "stepType": "lesson", "title": "Conjuguer être", "xpReward": 20, "generatedLessonKey": "lesson-2"}},
+        {{"stepOrder": 4, "stepType": "story", "title": "Lire une histoire courte", "xpReward": 15, "generatedStoryKey": "story-1"}},
+        {{"stepOrder": 5, "stepType": "quiz", "title": "Quiz conjugaison", "xpReward": 20, "quizCategory": "Conjugaison"}}
+      ],
+      "adaptationNotes": "Le parcours commence par les deux catégories faibles."
+    }}
+    """
+
+
 def test_generates_normalized_quiz_questions() -> None:
     primary = StubProvider("hf", "microsoft/Phi-4-mini-instruct", [question_json()])
     service = AIContentService(primary)
@@ -246,3 +319,48 @@ def test_rejects_delf_mock_exam_with_wrong_section_points() -> None:
 
     with pytest.raises(AIContentError):
         service.generate_delf_mock_exam(request(targetDelfLevel="A1.1"))
+
+
+def test_generates_full_learning_path_draft_with_steps_and_content() -> None:
+    primary = StubProvider("hf", "model", [learning_path_json()])
+    service = AIContentService(primary)
+
+    result = service.generate_learning_path(
+        request(),
+        student_profile={
+            "targetDelfLevel": "A1",
+            "achievedDelfLevel": "A1",
+            "overallScore": 58,
+            "categoryScores": {"Grammaire": 35, "Conjugaison": 48},
+            "weakCategories": ["Grammaire", "Conjugaison"],
+            "strongCategories": ["Vocabulaire"],
+        },
+    )
+
+    assert result.path.title == "Parcours personnalisé A1"
+    assert len(result.generatedLessons) == 2
+    assert len(result.generatedStories) == 1
+    assert len(result.generatedQuestions) == 2
+    assert [step.stepOrder for step in result.steps] == [1, 2, 3, 4, 5]
+    assert result.steps[0].generatedLessonKey == "lesson-1"
+    assert "catégories faibles" in primary.prompts[0]
+
+
+def test_rejects_learning_path_with_bad_quiz_category() -> None:
+    service = AIContentService(
+        StubProvider("hf", "model", [learning_path_json(quiz_category="Lecture")]),
+        repair_retries=0,
+    )
+
+    with pytest.raises(AIContentError):
+        service.generate_learning_path(request())
+
+
+def test_rejects_learning_path_with_missing_generated_lesson_key() -> None:
+    service = AIContentService(
+        StubProvider("hf", "model", [learning_path_json(lesson_key="missing")]),
+        repair_retries=0,
+    )
+
+    with pytest.raises(AIContentError):
+        service.generate_learning_path(request())
